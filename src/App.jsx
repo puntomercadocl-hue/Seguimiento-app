@@ -1745,16 +1745,15 @@ function Campanas({ productos, cfg }) {
                         <div style={{ fontWeight:700, fontSize:13, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
                           {c.nombre.replace(/^Ventas[-\s]+/i,"").replace(/-ABO.*$/i,"").trim()}
                         </div>
-                        {c.prod
-                          ? <div style={{ fontSize:11, color:T.accent, marginTop:2 }}>📦 {c.prod.nombre}</div>
-                          : productos.length > 0 && (
-                            <select onChange={e => setProdOverrides(prev=>({...prev,[i]:e.target.value}))}
-                              style={{ marginTop:4, fontSize:11, padding:"2px 6px", borderRadius:6, border:`1px solid ${T.border}`, color:T.text, background:T.inputBg, cursor:"pointer", maxWidth:180 }}>
-                              <option value="">🔗 Asignar producto...</option>
-                              {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                            </select>
-                          )
-                        }
+                        {productos.length > 0 && (
+                          <select
+                            value={prodOverrides[i] || c.prod?.id || ""}
+                            onChange={e => setProdOverrides(prev=>({...prev,[i]:e.target.value}))}
+                            style={{ marginTop:4, fontSize:11, padding:"2px 6px", borderRadius:6, border:`1px solid ${prodOverrides[i]||c.prod?T.accent:T.border}`, color:prodOverrides[i]||c.prod?T.accent:T.sub, background:prodOverrides[i]||c.prod?T.accentL:T.inputBg, cursor:"pointer", maxWidth:190, fontWeight:600 }}>
+                            <option value="">🔗 Asignar producto...</option>
+                            {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                          </select>
+                        )}
                         <div style={{ fontSize:11, color:T.sub, marginTop:2, fontStyle:"italic", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.razon}</div>
                       </td>
                       <TD>
