@@ -1422,64 +1422,71 @@ function Campanas({ productos, cfg }) {
     const file = e.target.files[0]; if (!file) return;
     const isCSV = file.name.toLowerCase().endsWith(".csv");
     const reader = new FileReader();
-    const parseRows = (rows) => {
-      const firstKey = Object.keys(rows[0]||{})[0]||"";
-      // Detectar formato: por día tiene fechas en primera columna, por campaña tiene nombre
-      const hasCampaignName = rows.some(r => r["Nombre de la cuenta"]||r["Campaign name"]||r["Ad Group Name"]||r["Campaign Name"]);
-      const isPorDia = !hasCampaignName;
+    const parseTikTokRows = (rows) => {
+      if (!rows || rows.length === 0) return;
+      const keys = Object.keys(rows[0]);
+      const firstKey = keys[0]||"";
+
+      // Nombres de columna conocidos de TikTok (ES e EN)
+      const get = (r, ...names) => { for(const n of names){ if(r[n]!==undefined && r[n]!=="") return parseFloat(r[n])||0; } return 0; };
+      const str = (r, ...names) => { for(const n of names){ if(r[n] && String(r[n]).trim()) return String(r[n]).trim(); } return ""; };
+
+      // Detectar si es por día (primera columna tiene fechas o se llama "Por día" / "Date")
+      const isPorDia = firstKey==="Por día" || firstKey==="Date" ||
+        rows.slice(0,3).some(r => /^\d{4}-\d{2}-\d{2}$/.test(String(r[firstKey]||"").trim()));
 
       if (isPorDia) {
-        // Consolidar filas diarias — sumar Coste y Conversiones correctamente
         const dataRows = rows.filter(r => {
-          const v = String(r[firstKey]||"");
-          return v && !v.startsWith("Total") && /\d{4}/.test(v);
+          const v = String(r[firstKey]||"").trim();
+          return /^\d{4}-\d{2}-\d{2}$/.test(v);
         });
-        const totals = dataRows.reduce((acc, r) => {
-          acc.gastado += parseFloat(r["Coste"]||0);
-          acc.compras += parseFloat(r["Conversiones"]||0);
-          acc.clics   += parseFloat(r["Clics (destino)"]||0);
-          acc.imps    += parseFloat(r["Impresiones"]||0);
+        const t = dataRows.reduce((acc,r) => {
+          acc.gastado += get(r,"Coste","Cost","Spend");
+          acc.compras += get(r,"Conversiones","Conversions");
+          acc.clics   += get(r,"Clics (destino)","Clicks (destination)","Clicks");
+          acc.imps    += get(r,"Impresiones","Impressions");
           return acc;
-        }, { gastado:0, compras:0, clics:0, imps:0 });
-        const cpa = totals.compras > 0 ? Math.round(totals.gastado / totals.compras) : 0;
-        const cpm = totals.imps   > 0 ? Math.round((totals.gastado / totals.imps)*1000) : 0;
-        const cpc = totals.clics  > 0 ? Math.round(totals.gastado / totals.clics) : 0;
-        const ctr = totals.imps   > 0 ? (totals.clics / totals.imps)*100 : 0;
+        }, {gastado:0, compras:0, clics:0, imps:0});
+        const cpa = t.compras>0 ? Math.round(t.gastado/t.compras) : 0;
+        const cpm = t.imps>0   ? Math.round((t.gastado/t.imps)*1000) : 0;
+        const cpc = t.clics>0  ? Math.round(t.gastado/t.clics) : 0;
+        const ctr = t.imps>0   ? +((t.clics/t.imps)*100).toFixed(2) : 0;
         setCampanas(prev => [...prev.filter(c=>c.plataforma!=="TikTok"), {
-          plataforma:"TikTok",
-          nombre    :"TikTok Ads — Punto Mercado",
-          periodo   :`${dataRows.length} días`,
-          estado    :"active",
-          gastado   : totals.gastado,
-          compras   : totals.compras,
-          roas      : 0,
-          cpa, ctr, cpm, cpc,
-          clics     : totals.clics,
+          plataforma:"TikTok", nombre:"TikTok Ads — Punto Mercado",
+          periodo:`${dataRows.length} días`, estado:"active",
+          gastado:t.gastado, compras:t.compras, roas:0, cpa, ctr, cpm, cpc, clics:t.clics,
         }]);
       } else {
-        const mapped = rows
-          .filter(r => {
-            const n = String(r["Nombre de la cuenta"]||r["Campaign name"]||r["Ad Group Name"]||r["Campaign Name"]||"");
-            return n && !n.startsWith("Total") && !n.startsWith("total");
-          })
-          .map(r => ({
-            plataforma : "TikTok",
-            nombre     : String(r["Campaign name"]||r["Nombre de la cuenta"]||r["Ad Group Name"]||r["Campaign Name"]||"TikTok Ads"),
-            periodo    : r["Date"]||r["Fecha"]||"",
-            estado     : "active",
-            gastado    : parseFloat(r["Cost"]||r["Coste"]||r["Spend"]||0),
-            compras    : parseFloat(r["Conversions"]||r["Conversiones"]||0),
-            roas       : parseFloat(r["ROAS"]||r["Purchase ROAS"]||0),
-            cpa        : parseFloat(r["Cost per conversion"]||r["Coste por conversión"]||0),
-            ctr        : parseFloat(r["CTR (destination)"]||r["CTR (destino)"]||r["CTR"]||0),
-            cpm        : parseFloat(r["CPM"]||0),
-            cpc        : parseFloat(r["CPC (destination)"]||r["CPC (destino)"]||r["CPC"]||0),
-            clics      : parseFloat(r["Clicks (destination)"]||r["Clics (destino)"]||r["Clicks"]||0),
-          }));
+        const campRows = rows.filter(r => {
+          const n = str(r,"Campaign name","Nombre de la cuenta","Ad Group Name","Campaign Name");
+          return n && !n.startsWith("Total") && !n.toLowerCase().startsWith("total");
+        });
+        // Agrupar por nombre de campaña (puede haber múltiples ad groups por campaña)
+        const byCamp = {};
+        campRows.forEach(r => {
+          const nombre = str(r,"Campaign name","Nombre de la cuenta","Campaign Name");
+          if (!byCamp[nombre]) byCamp[nombre] = {gastado:0,compras:0,clics:0,imps:0,cpa:0};
+          byCamp[nombre].gastado += get(r,"Cost","Coste","Spend");
+          byCamp[nombre].compras += get(r,"Conversions","Conversiones");
+          byCamp[nombre].clics   += get(r,"Clicks (destination)","Clics (destino)","Clicks");
+          byCamp[nombre].imps    += get(r,"Impressions","Impresiones");
+        });
+        const mapped = Object.entries(byCamp).map(([nombre, t]) => ({
+          plataforma:"TikTok", nombre, periodo:"", estado:"active",
+          gastado : t.gastado,
+          compras : t.compras,
+          roas    : 0,
+          cpa     : t.compras>0 ? Math.round(t.gastado/t.compras) : 0,
+          ctr     : t.imps>0 ? +((t.clics/t.imps)*100).toFixed(2) : 0,
+          cpm     : t.imps>0 ? Math.round((t.gastado/t.imps)*1000) : 0,
+          cpc     : t.clics>0 ? Math.round(t.gastado/t.clics) : 0,
+          clics   : t.clics,
+        }));
         setCampanas(prev => [...prev.filter(c=>c.plataforma!=="TikTok"), ...mapped]);
       }
       setPlat("TikTok");
     };
+    const parseRows = parseTikTokRows;
     reader.onload = (ev) => {
       try {
         if (isCSV) {
