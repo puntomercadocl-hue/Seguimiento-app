@@ -1664,7 +1664,7 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
             <span style={{ fontWeight:700, color:T.accent }}>{dateRange?.from} → {dateRange?.to}</span>
             <span style={{ color:T.sub }}>· Última carga guardada automáticamente</span>
           </div>
-        </div>
+        )}
         {campanas.length===0 && (
           <div style={{ background:T.accentL, borderRadius:10, padding:"12px 16px", fontSize:13, color:T.accent, fontWeight:600 }}>
             💡 La app cruza tus campañas con el costeo de tus productos para decirte si eres rentable — no si el CPA es bajo. Un CPA alto puede estar bien si el margen lo aguanta.
