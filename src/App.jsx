@@ -1372,19 +1372,377 @@ function Importar({ productos, setEntries }) {
   );
 }
 
+// ─── ANÁLISIS DE CAMPAÑAS ─────────────────────────────────────────────────────
+function Campanas({ productos, cfg }) {
+  const [campanas, setCampanas] = useState([]);
+  const [plat, setPlat]         = useState("Todos");
+  const [sort, setSort]         = useState("rentabilidad");
+
+  const handleMeta = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const lines = ev.target.result.split("\n").filter(l => l.trim());
+        const hdrs  = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g,""));
+        const rows  = [];
+        lines.slice(1).forEach(line => {
+          const cols = []; let cur = "", inQ = false;
+          for (const ch of line) {
+            if (ch==='"') inQ=!inQ;
+            else if (ch===',' && !inQ) { cols.push(cur.trim()); cur=""; }
+            else cur+=ch;
+          }
+          cols.push(cur.trim());
+          const r = {}; hdrs.forEach((h,i) => r[h]=cols[i]||"");
+          if (!r["Nombre de la campaña"]) return;
+          rows.push({
+            plataforma : "Meta",
+            nombre     : r["Nombre de la campaña"],
+            periodo    : r["Mes"]||"",
+            estado     : r["Estado de la entrega"]||"",
+            gastado    : parseFloat(r["Importe gastado (CLP)"]||0),
+            compras    : parseFloat(r["Compras"]||0),
+            roas       : parseFloat(r["ROAS (retorno de la inversión en publicidad) de compras"]||0),
+            cpa        : parseFloat(r["Costo por compra"]||0),
+            ctr        : parseFloat(r["CTR (porcentaje de clics en el enlace)"]||0),
+            cpm        : parseFloat(r["CPM (costo por mil impresiones)"]||0),
+            cpc        : parseFloat(r["CPC (costo por clic en el enlace)"]||0),
+            clics      : parseFloat(r["Clics únicos en el enlace"]||0),
+          });
+        });
+        setCampanas(prev => [...prev.filter(c=>c.plataforma!=="Meta"), ...rows]);
+        setPlat("Meta");
+      } catch { alert("Error leyendo CSV de Meta"); }
+    };
+    reader.readAsText(file, "utf-8");
+  };
+
+  const handleTikTok = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const wb = window.XLSX.read(ev.target.result, { type:"array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = window.XLSX.utils.sheet_to_json(ws, { defval:"" });
+        const mapped = rows
+          .filter(r => r["Nombre de la cuenta"] && !String(r["Nombre de la cuenta"]).startsWith("Total"))
+          .map(r => ({
+            plataforma : "TikTok",
+            nombre     : String(r["Nombre de la cuenta"]||""),
+            periodo    : "",
+            estado     : "active",
+            gastado    : parseFloat(r["Coste"]||0),
+            compras    : parseFloat(r["Conversiones"]||0),
+            roas       : 0,
+            cpa        : parseFloat(r["Coste por conversión"]||0),
+            ctr        : parseFloat(r["CTR (destino)"]||0)*100,
+            cpm        : parseFloat(r["CPM"]||0),
+            cpc        : parseFloat(r["CPC (destino)"]||0),
+            clics      : parseFloat(r["Clics (destino)"]||0),
+          }));
+        setCampanas(prev => [...prev.filter(c=>c.plataforma!=="TikTok"), ...mapped]);
+        setPlat("TikTok");
+      } catch { alert("Error leyendo Excel de TikTok"); }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  // ── Enriquecer cada campaña con datos del catálogo ──
+  const enriquecidas = campanas.map(c => {
+    // Intentar coincidir campaña con producto del catálogo
+    const prod = productos.find(p => {
+      const np = (p.nombre||"").toUpperCase();
+      const nc = c.nombre.toUpperCase();
+      return np.split(" ").filter(w=>w.length>3).some(w => nc.includes(w)) ||
+             nc.split(/[\s-]+/).filter(w=>w.length>3).some(w => np.includes(w));
+    });
+    const costeo = prod ? calcCosteo(prod, cfg) : null;
+    const beroas  = costeo?.beroas  || null;
+    const cpaMax  = costeo?.cpaMax  || null;
+    const utilUnit= costeo?.utilUnitReal || null;
+
+    // ── Lógica de decisión basada en RENTABILIDAD, no solo CPA ──
+    // Principio: el ROAS vs BEROAS es lo que importa.
+    // CPA alto no es problema si el ROAS supera el break-even.
+    let decision, razon, urgencia = 0;
+
+    if (c.compras === 0 && c.gastado > 8000) {
+      decision = "pausar";
+      razon = `Gastaste ${clp(c.gastado)} sin ninguna compra. No hay señal de mercado.`;
+      urgencia = 3;
+    } else if (c.compras === 0 && c.gastado <= 8000) {
+      decision = "revisar";
+      razon = "Poco gasto y sin compras aún. Dale más presupuesto o revisa el creativo.";
+      urgencia = 1;
+    } else if (beroas !== null && c.roas > 0) {
+      const margen = (c.roas - beroas) / beroas; // qué tan lejos está del break-even
+      if (c.roas >= beroas * 1.4) {
+        decision = "escalar";
+        razon = `ROAS ${c.roas.toFixed(1)}x vs BEROAS ${beroas.toFixed(1)}x — estás ${((c.roas/beroas-1)*100).toFixed(0)}% sobre el break-even. Sube el presupuesto.`;
+        urgencia = 0;
+      } else if (c.roas >= beroas) {
+        decision = "mantener";
+        razon = `Rentable pero justo en el límite. Optimiza creativos antes de escalar.`;
+        urgencia = 1;
+      } else if (c.roas >= beroas * 0.7) {
+        decision = "optimizar";
+        razon = `ROAS ${c.roas.toFixed(1)}x, necesitas ${beroas.toFixed(1)}x para cubrir costos. Ajusta segmentación o creativos.`;
+        urgencia = 2;
+      } else {
+        decision = "pausar";
+        razon = `ROAS ${c.roas.toFixed(1)}x muy por debajo del BEROAS ${beroas.toFixed(1)}x. Estás perdiendo dinero.`;
+        urgencia = 3;
+      }
+    } else if (c.roas >= 5) {
+      decision = "escalar";
+      razon = `ROAS ${c.roas.toFixed(1)}x es excelente. Carga el costeo del producto para confirmar.`;
+      urgencia = 0;
+    } else if (c.roas >= 3) {
+      decision = "mantener";
+      razon = `ROAS ${c.roas.toFixed(1)}x parece sano. Carga el costeo para tomar mejor decisión.`;
+      urgencia = 1;
+    } else if (c.roas > 0) {
+      decision = "optimizar";
+      razon = `ROAS ${c.roas.toFixed(1)}x bajo. Sin costeo cargado no podemos confirmar si es rentable.`;
+      urgencia = 2;
+    } else {
+      decision = "sin_datos";
+      razon = "Carga el producto en el catálogo para ver la rentabilidad real.";
+      urgencia = 0;
+    }
+
+    // Ganancia estimada = compras × utilidad unitaria
+    const gananciaEst = (prod && utilUnit != null) ? c.compras * utilUnit - c.gastado : null;
+
+    return { ...c, prod, beroas, cpaMax, utilUnit, decision, razon, urgencia, gananciaEst };
+  });
+
+  const platFiltradas = plat==="Todos" ? enriquecidas : enriquecidas.filter(c=>c.plataforma===plat);
+  const sorted = [...platFiltradas].sort((a,b) => {
+    if (sort==="rentabilidad") return (b.roas||0)-(a.roas||0);
+    if (sort==="gastado")      return b.gastado-a.gastado;
+    if (sort==="urgencia")     return b.urgencia-a.urgencia;
+    return 0;
+  });
+
+  // KPIs globales
+  const totalGastado = platFiltradas.reduce((s,c)=>s+c.gastado,0);
+  const totalCompras = platFiltradas.reduce((s,c)=>s+c.compras,0);
+  const roasProm     = platFiltradas.filter(c=>c.roas>0).length
+    ? platFiltradas.filter(c=>c.roas>0).reduce((s,c)=>s+c.roas,0)/platFiltradas.filter(c=>c.roas>0).length : 0;
+  const nEscalar  = platFiltradas.filter(c=>c.decision==="escalar").length;
+  const nPausar   = platFiltradas.filter(c=>c.decision==="pausar").length;
+  const ganTotal  = platFiltradas.reduce((s,c)=>s+(c.gananciaEst||0),0);
+
+  const DECISION = {
+    escalar  : { bg:"#d1fae5", color:"#059669", icon:"🚀", label:"Escalar" },
+    mantener : { bg:"#dbeafe", color:"#2563eb", icon:"✅", label:"Mantener" },
+    optimizar: { bg:T.yellowBg, color:"#b45309", icon:"⚙️", label:"Optimizar" },
+    pausar   : { bg:T.redBg, color:T.red, icon:"⏸", label:"Pausar YA" },
+    revisar  : { bg:T.orangeBg, color:T.orange, icon:"🔍", label:"Revisar" },
+    sin_datos: { bg:T.bg, color:T.sub, icon:"—", label:"Sin datos" },
+  };
+
+  const dropZone = (label, icon, onChange, loaded) => (
+    <label style={{ display:"flex", alignItems:"center", gap:12, border:`2px dashed ${loaded?T.green:T.border}`, borderRadius:12, padding:"16px 20px", cursor:"pointer", background:loaded?T.greenBg:T.inputBg }}>
+      <input type="file" style={{ display:"none" }} onChange={onChange} accept={label.includes("TikTok")?".xlsx,.xls":".csv"} />
+      <div style={{ fontSize:28 }}>{loaded?"✅":icon}</div>
+      <div>
+        <div style={{ fontWeight:700, fontSize:13, color:loaded?T.green:T.text }}>{loaded?"Cargado — click para reemplazar":label}</div>
+        <div style={{ fontSize:11, color:T.sub, marginTop:2 }}>{label.includes("TikTok")?"Archivo .xlsx de TikTok Ads Manager":"Archivo .csv de Meta Ads Manager"}</div>
+      </div>
+    </label>
+  );
+
+  return (
+    <div style={{ display:"grid", gap:20 }}>
+
+      {/* Upload */}
+      <Card>
+        <SectionTitle icon="📡" title="Importar Reportes de Ads" sub="Conecta Meta y TikTok para ver rentabilidad real por campaña" />
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom: campanas.length===0?14:0 }}>
+          {dropZone("🔵 Meta Ads — CSV", "🔵", handleMeta, campanas.some(c=>c.plataforma==="Meta"))}
+          {dropZone("🎵 TikTok Ads — Excel", "🎵", handleTikTok, campanas.some(c=>c.plataforma==="TikTok"))}
+        </div>
+        {campanas.length===0 && (
+          <div style={{ background:T.accentL, borderRadius:10, padding:"12px 16px", fontSize:13, color:T.accent, fontWeight:600 }}>
+            💡 La app cruza tus campañas con el costeo de tus productos para decirte si eres rentable — no si el CPA es bajo. Un CPA alto puede estar bien si el margen lo aguanta.
+          </div>
+        )}
+      </Card>
+
+      {campanas.length > 0 && (<>
+
+        {/* KPIs */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:12 }}>
+          {[
+            { label:"Total en Ads", value:clp(totalGastado), color:T.text },
+            { label:"Compras Totales", value:totalCompras.toFixed(0), color:T.accent },
+            { label:"ROAS Promedio", value:x2(roasProm), color:roasProm>=4?T.green:roasProm>=2?T.yellow:T.red },
+            { label:"🚀 Para Escalar", value:nEscalar, color:T.green },
+            { label:"⏸ Para Pausar", value:nPausar, color:T.red },
+          ].map(({label,value,color})=>(
+            <div key={label} style={{ background:T.white, borderRadius:12, padding:"14px 16px", boxShadow:T.shadow }}>
+              <div style={{ fontSize:11, color:T.sub, fontWeight:700, marginBottom:4, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
+              <div style={{ fontSize:22, fontWeight:900, color }}>{value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Alertas prioritarias */}
+        {sorted.filter(c=>c.decision==="pausar"||c.decision==="escalar").length > 0 && (
+          <Card style={{ background:"#fafafa", border:`1.5px solid ${T.border}` }}>
+            <div style={{ fontWeight:800, fontSize:14, color:T.text, marginBottom:12 }}>⚡ Acciones Prioritarias Ahora</div>
+            <div style={{ display:"grid", gap:8 }}>
+              {sorted.filter(c=>c.decision==="escalar").map((c,i)=>(
+                <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:12, background:DECISION.escalar.bg, borderRadius:10, padding:"12px 16px" }}>
+                  <div style={{ fontSize:20 }}>🚀</div>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:13, color:DECISION.escalar.color }}>ESCALAR — {c.nombre.replace(/Ventas[-\s]+/i,"").trim()}</div>
+                    <div style={{ fontSize:12, color:T.sub, marginTop:2 }}>{c.razon}</div>
+                  </div>
+                  <div style={{ marginLeft:"auto", textAlign:"right", flexShrink:0 }}>
+                    <div style={{ fontSize:12, color:T.sub }}>Gastado</div>
+                    <div style={{ fontWeight:800, color:T.text }}>{clp(c.gastado)}</div>
+                  </div>
+                </div>
+              ))}
+              {sorted.filter(c=>c.decision==="pausar").map((c,i)=>(
+                <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:12, background:DECISION.pausar.bg, borderRadius:10, padding:"12px 16px" }}>
+                  <div style={{ fontSize:20 }}>⏸</div>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:13, color:DECISION.pausar.color }}>PAUSAR — {c.nombre.replace(/Ventas[-\s]+/i,"").trim()}</div>
+                    <div style={{ fontSize:12, color:T.sub, marginTop:2 }}>{c.razon}</div>
+                  </div>
+                  <div style={{ marginLeft:"auto", textAlign:"right", flexShrink:0 }}>
+                    <div style={{ fontSize:12, color:T.sub }}>Gastado sin retorno</div>
+                    <div style={{ fontWeight:800, color:T.red }}>{clp(c.gastado)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* Filtros */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
+          <div style={{ display:"flex", gap:8 }}>
+            {["Todos","Meta","TikTok"].map(p=>(
+              <button key={p} onClick={()=>setPlat(p)} style={{ padding:"7px 16px", borderRadius:20, border:`1.5px solid ${plat===p?T.accent:T.border}`, background:plat===p?T.accentL:T.white, color:plat===p?T.accent:T.sub, fontWeight:plat===p?700:500, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>{p}</button>
+            ))}
+          </div>
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            <span style={{ fontSize:12, color:T.sub }}>Ordenar por:</span>
+            {[["rentabilidad","ROAS"],["gastado","Gasto"],["urgencia","Urgencia"]].map(([v,l])=>(
+              <button key={v} onClick={()=>setSort(v)} style={{ padding:"6px 14px", borderRadius:20, border:`1.5px solid ${sort===v?T.accent:T.border}`, background:sort===v?T.accentL:T.white, color:sort===v?T.accent:T.sub, fontWeight:sort===v?700:500, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>{l}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tabla de campañas */}
+        <Card style={{ padding:0, overflow:"hidden" }}>
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", minWidth:900 }}>
+              <thead>
+                <tr style={{ background:T.bg }}>
+                  <TH>Campaña</TH>
+                  <TH>Plataforma</TH>
+                  <TH>Período</TH>
+                  <TH>Gastado</TH>
+                  <TH>Compras</TH>
+                  <TH>ROAS</TH>
+                  <TH>BEROAS</TH>
+                  <TH>CPA Real</TH>
+                  <TH>CPA Máx.</TH>
+                  <TH>CTR</TH>
+                  <TH>Decisión</TH>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((c,i)=>{
+                  const D = DECISION[c.decision];
+                  const roasOk = c.beroas ? c.roas >= c.beroas : c.roas >= 3;
+                  return (
+                    <tr key={i} style={{ background: i%2===0 ? T.white : T.bg, borderBottom:`1px solid ${T.border}` }}>
+                      <td style={{ padding:"12px 14px", maxWidth:220 }}>
+                        <div style={{ fontWeight:700, fontSize:13, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                          {c.nombre.replace(/^Ventas[-\s]+/i,"").replace(/-ABO.*$/i,"").trim()}
+                        </div>
+                        {c.prod && <div style={{ fontSize:11, color:T.accent, marginTop:2 }}>📦 {c.prod.nombre}</div>}
+                        <div style={{ fontSize:11, color:T.sub, marginTop:2, fontStyle:"italic", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.razon}</div>
+                      </td>
+                      <TD>
+                        <span style={{ background:c.plataforma==="Meta"?"#eff6ff":"#fdf4ff", color:c.plataforma==="Meta"?"#2563eb":"#7c3aed", borderRadius:6, padding:"2px 8px", fontSize:12, fontWeight:700 }}>
+                          {c.plataforma==="Meta"?"🔵 Meta":"🎵 TikTok"}
+                        </span>
+                      </TD>
+                      <td style={{ padding:"12px 14px", fontSize:12, color:T.sub, whiteSpace:"nowrap" }}>{c.periodo.slice(0,10)}</td>
+                      <TD bold>{clp(c.gastado)}</TD>
+                      <TD color={c.compras>0?T.text:T.sub}>{c.compras||"—"}</TD>
+                      <td style={{ padding:"12px 14px" }}>
+                        <span style={{ fontWeight:800, fontSize:14, color:roasOk?T.green:c.roas>0?T.red:T.sub }}>
+                          {c.roas>0 ? x2(c.roas) : "—"}
+                        </span>
+                      </td>
+                      <td style={{ padding:"12px 14px" }}>
+                        {c.beroas
+                          ? <span style={{ fontWeight:700, fontSize:13, color:T.accent }}>{x2(c.beroas)}</span>
+                          : <span style={{ fontSize:12, color:T.sub }}>—</span>}
+                      </td>
+                      <TD color={c.cpaMax&&c.cpa>c.cpaMax?T.red:T.text}>{c.cpa>0?clp(c.cpa):"—"}</TD>
+                      <TD color={T.green}>{c.cpaMax?clp(c.cpaMax):"—"}</TD>
+                      <td style={{ padding:"12px 14px", fontSize:13, color:T.sub }}>{c.ctr>0?`${c.ctr.toFixed(2)}%`:"—"}</td>
+                      <td style={{ padding:"12px 14px" }}>
+                        <div style={{ background:D.bg, color:D.color, borderRadius:8, padding:"5px 10px", fontSize:12, fontWeight:800, whiteSpace:"nowrap", display:"inline-block" }}>
+                          {D.icon} {D.label}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        {/* Nota educativa */}
+        <Card style={{ background:T.accentL, border:`1px solid ${T.accent}33` }}>
+          <div style={{ fontWeight:800, fontSize:13, color:T.accent, marginBottom:8 }}>📚 ¿Por qué no miramos solo el CPA?</div>
+          <div style={{ fontSize:13, color:T.text, lineHeight:1.8 }}>
+            El CPA mide cuánto pagaste por cada compra en ads — pero no te dice si fuiste rentable. Una campaña con CPA de $18.000 puede ser <strong>excelente</strong> si tu producto tiene margen para absorberlo, o una campaña con CPA de $4.000 puede ser <strong>ruinosa</strong> si tu margen neto es de $3.000.<br/>
+            <br/>
+            Lo que importa: <strong>ROAS ≥ BEROAS</strong>. Si tu ROAS supera el break-even, estás ganando. Si no, estás financiando ventas con pérdida. Carga el costeo de tus productos para ver esto en tiempo real.
+          </div>
+        </Card>
+
+      </>)}
+    </div>
+  );
+}
+
 // ─── APP ──────────────────────────────────────────────────────────────────────
-const NAV = [["calculadora","🧮","Calculadora"],["productos","📦","Mis Productos"],["registro","➕","Registro Diario"],["importar","📥","Importar Datos"],["dashboard","📊","Dashboard"],["simulaciones","🔮","Simulaciones"]];
+const NAV = [
+  ["campanas",   "📡", "Campañas Ads"],
+  ["calculadora","🧮", "Calculadora"],
+  ["productos",  "📦", "Mis Productos"],
+  ["registro",   "➕", "Registro Diario"],
+  ["importar",   "📥", "Importar Datos"],
+  ["dashboard",  "📊", "Dashboard"],
+  ["simulaciones","🔮","Simulaciones"],
+];
 
 export default function App() {
   const stored = hydrate();
-  const [page, setPage] = useState("calculadora");
+  const [page, setPage] = useState("campanas");
   const [cfg, setCfg] = useState(stored.cfg || GCFG);
   const [productos, setProductos] = useState(stored.productos || []);
   const [entries, setEntries] = useState(stored.entries || []);
 
   useEffect(() => persist({ cfg, productos, entries }), [cfg, productos, entries]);
 
-  const headers = { calculadora: ["Calculadora de Precios","Costeo completo con análisis de 2ª unidad, BEROAS y ganancia proyectada"], productos: ["Mis Productos","Catálogo con costeo, antecedentes de investigación y links de anuncios"], registro: ["Registro Diario","Testeos con métricas de ads (CPM, CPC, CTR) + checklist de calidad"], importar: ["Importar Datos","Sube el Excel de Dropi y el CSV de Shopify para generar el registro automáticamente"], dashboard: ["Dashboard","Análisis de rentabilidad, gráficos y resumen por producto"], simulaciones: ["Simulaciones","Proyecta rentabilidad en escenario ácido, base y optimista"] };
+  const headers = { campanas: ["Campañas Ads","Rentabilidad real — qué escalar y qué pausar basado en ROAS vs BEROAS"], calculadora: ["Calculadora de Precios","Costeo completo con análisis de 2ª unidad, BEROAS y ganancia proyectada"], productos: ["Mis Productos","Catálogo con costeo, antecedentes y links de anuncios"], registro: ["Registro Diario","Testeos con métricas de ads + checklist de calidad"], importar: ["Importar Datos","Sube el Excel de Dropi y CSV de Shopify — detecta combos y upsells"], dashboard: ["Dashboard","Análisis de rentabilidad, gráficos y resumen por producto"], simulaciones: ["Simulaciones","Proyecta rentabilidad en escenario ácido, base y optimista"] };
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: T.bg, fontFamily: "'Nunito', 'Sora', 'Segoe UI', sans-serif" }}>
@@ -1428,6 +1786,7 @@ export default function App() {
           <div style={{ fontSize: 13, color: T.sub, marginTop: 2 }}>{headers[page][1]}</div>
         </div>
         <div style={{ padding: 26 }}>
+          {page === "campanas"     && <Campanas productos={productos} cfg={cfg} />}
           {page === "calculadora"  && <Calculadora cfg={cfg} setCfg={setCfg} productos={productos} />}
           {page === "productos"    && <MisProductos productos={productos} setProductos={setProductos} cfg={cfg} />}
           {page === "registro"     && <Registro entries={entries} setEntries={setEntries} productos={productos} cfg={cfg} />}
