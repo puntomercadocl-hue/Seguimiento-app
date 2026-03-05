@@ -1062,8 +1062,293 @@ function Simulaciones({ cfg, productos }) {
   );
 }
 
+// ─── IMPORTAR DATOS ───────────────────────────────────────────────────────────
+// Estatus de Dropi → categorías
+const CONF_ST  = new Set(["GUIA_GENERADA","EN TRÁNSITO","INGRESO CAMION","EN ESPERA EN OFICINA","EN REPARTO","NOVEDAD","ENTREGADO"]);
+const ENT_ST   = new Set(["ENTREGADO"]);
+const DEV_ST   = new Set(["DEVOLUCION A REMITENTE"]);
+
+function parseDropiXLSX(buffer) {
+  // Manual XLSX parser using SheetJS loaded via CDN — we do it in JS in the browser
+  // This function is called after SheetJS parses the file
+  return buffer; // passed-through after parsing in component
+}
+
+function Importar({ productos, setEntries, entries }) {
+  const [dropiData, setDropiData]   = useState(null); // parsed rows from Dropi XLSX
+  const [shopifyData, setShopifyData] = useState(null); // parsed rows from Shopify CSV
+  const [preview, setPreview]       = useState([]); // merged preview rows
+  const [importing, setImporting]   = useState(false);
+  const [done, setDone]             = useState(false);
+  const [fecha, setFecha]           = useState(new Date().toISOString().slice(0,10));
+  const [gastoAds, setGastoAds]     = useState("");
+
+  // ── Parse Dropi XLSX in browser using SheetJS ──
+  const handleDropi = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const XLSX = window.XLSX;
+        const wb = XLSX.read(ev.target.result, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+        // Group by product
+        const byProd = {};
+        rows.forEach(r => {
+          const prod = r["PRODUCTO"] || r["Producto"] || "";
+          const status = r["ESTATUS"] || r["Estatus"] || "";
+          if (!prod) return;
+          if (!byProd[prod]) byProd[prod] = { total:0, confirmados:0, entregados:0, devoluciones:0, flete:0, costo:0, ingresos:0 };
+          byProd[prod].total++;
+          byProd[prod].flete   += parseFloat(r["PRECIO FLETE"] || 0);
+          byProd[prod].costo   += parseFloat(r["PRECIO PROVEEDOR"] || 0);
+          byProd[prod].ingresos+= parseFloat(r["TOTAL DE LA ORDEN"] || 0);
+          if (CONF_ST.has(status)) byProd[prod].confirmados++;
+          if (ENT_ST.has(status))  byProd[prod].entregados++;
+          if (DEV_ST.has(status))  byProd[prod].devoluciones++;
+        });
+        setDropiData(byProd);
+      } catch(err) {
+        alert("Error leyendo el archivo Dropi. Asegúrate de subir el Excel (.xlsx)");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  // ── Parse Shopify CSV ──
+  const handleShopify = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const lines = ev.target.result.split("\n").filter(l => l.trim());
+        const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g,""));
+        const rows = lines.slice(1).map(line => {
+          // Handle quoted fields with commas
+          const cols = [];
+          let cur = "", inQ = false;
+          for (const ch of line) {
+            if (ch === '"') { inQ = !inQ; }
+            else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ""; }
+            else cur += ch;
+          }
+          cols.push(cur.trim());
+          const obj = {};
+          headers.forEach((h,i) => obj[h] = cols[i] || "");
+          return obj;
+        });
+        // Map to simpler structure
+        const byProd = {};
+        rows.forEach(r => {
+          const prod = (r["Título del producto"] || "").trim().toUpperCase();
+          if (!prod) return;
+          byProd[prod] = {
+            pedidos: parseInt(r["Pedidos"] || 0),
+            unidades: parseInt(r["Artículos netos vendidos"] || 0),
+            ventasBrutas: parseInt((r["Ventas brutas"] || "0").replace(/[^0-9-]/g,"")),
+            descuentos: parseInt((r["Descuentos"] || "0").replace(/[^0-9-]/g,"")),
+            ventasNetas: parseInt((r["Ventas netas"] || "0").replace(/[^0-9-]/g,"")),
+          };
+        });
+        setShopifyData(byProd);
+      } catch(err) {
+        alert("Error leyendo el CSV de Shopify.");
+      }
+    };
+    reader.readAsText(file, "utf-8");
+  };
+
+  // ── Merge and build preview ──
+  useEffect(() => {
+    if (!dropiData) return;
+    const rows = [];
+    Object.entries(dropiData).forEach(([nombreDropi, d]) => {
+      // Try to match with a product in catalog
+      const matched = productos.find(p =>
+        p.nombre?.toUpperCase().includes(nombreDropi.toUpperCase().slice(0,8)) ||
+        nombreDropi.toUpperCase().includes((p.nombre || "").toUpperCase().slice(0,8))
+      );
+      // Try to match with Shopify data
+      const shopKey = Object.keys(shopifyData || {}).find(k =>
+        k.includes(nombreDropi.toUpperCase().slice(0,8)) ||
+        nombreDropi.toUpperCase().includes(k.slice(0,8))
+      );
+      const sh = shopifyData?.[shopKey] || {};
+
+      rows.push({
+        nombreDropi,
+        productoId: matched?.id || "",
+        productoNombre: matched?.nombre || nombreDropi,
+        pedidosTotales: d.total,
+        unidades: sh.unidades || d.total,
+        confirmados: d.confirmados,
+        entregados: d.entregados,
+        devoluciones: d.devoluciones,
+        ventasFacturadas: sh.ventasNetas || d.ingresos,
+        costoFlete: d.flete,
+        costoProveedor: d.costo,
+        matched: !!matched,
+      });
+    });
+    setPreview(rows);
+  }, [dropiData, shopifyData, productos]);
+
+  const importAll = () => {
+    setImporting(true);
+    const nuevos = preview.map(r => ({
+      id: Date.now() + Math.random(),
+      fecha,
+      productoId: r.productoId,
+      plataforma: "Meta",
+      gastoAds: gastoAds || "",
+      pedidosTotales: String(r.pedidosTotales),
+      unidades: String(r.unidades),
+      confirmados: String(r.confirmados),
+      entregados: String(r.entregados),
+      devoluciones: String(r.devoluciones),
+      ventasFacturadas: String(r.ventasFacturadas),
+      diasCampana: "", cpm: "", cpc: "", ctr: "",
+      checklist: {},
+    }));
+    setEntries(e => [...e, ...nuevos]);
+    setImporting(false);
+    setDone(true);
+  };
+
+  const fileInputStyle = {
+    display: "none"
+  };
+  const dropZone = (label, icon, onChange, loaded) => (
+    <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", border: `2px dashed ${loaded ? T.green : T.border}`, borderRadius: 14, padding: "28px 20px", cursor: "pointer", background: loaded ? T.greenBg : T.inputBg, transition: "all 0.2s", gap: 8 }}>
+      <input type="file" style={fileInputStyle} onChange={onChange} accept={label.includes("Dropi") ? ".xlsx,.xls" : ".csv"} />
+      <div style={{ fontSize: 32 }}>{loaded ? "✅" : icon}</div>
+      <div style={{ fontWeight: 700, fontSize: 14, color: loaded ? T.green : T.text }}>{loaded ? "Archivo cargado" : label}</div>
+      <div style={{ fontSize: 12, color: T.sub }}>{loaded ? "Click para cambiar" : label.includes("Dropi") ? "Archivo .xlsx de Dropi" : "Archivo .csv de Shopify"}</div>
+    </label>
+  );
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      {/* SheetJS CDN loader */}
+      {!window.XLSX && (
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" />
+      )}
+
+      {done ? (
+        <Card style={{ textAlign: "center", padding: 48 }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: T.green, marginBottom: 8 }}>¡Importación completada!</div>
+          <div style={{ color: T.sub, marginBottom: 20 }}>Se agregaron {preview.length} registros al Registro Diario</div>
+          <Btn onClick={() => { setDone(false); setDropiData(null); setShopifyData(null); setPreview([]); }}>Importar otro archivo</Btn>
+        </Card>
+      ) : (
+        <>
+          {/* Fecha y gasto ads global */}
+          <Card>
+            <SectionTitle icon="📥" title="Importar Datos" sub="Sube los archivos de Dropi y Shopify para generar el registro automáticamente" />
+            <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 14, marginBottom: 20 }}>
+              <div>
+                <Label>📅 Fecha del reporte</Label>
+                <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
+                  style={{ width: "100%", background: T.inputBg, border: `1.5px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontSize: 14, fontFamily: "inherit", outline: "none" }} />
+              </div>
+              <Inp label="💸 Gasto Total en Ads del período (CLP)" value={gastoAds} onChange={setGastoAds} placeholder="Ej: 79212" hint="Se asignará a todos los registros importados" />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              {dropZone("📦 Excel de Dropi", "📦", handleDropi, !!dropiData)}
+              {dropZone("🛍️ CSV de Shopify", "🛍️", handleShopify, !!shopifyData)}
+            </div>
+          </Card>
+
+          {/* Preview */}
+          {preview.length > 0 && (
+            <Card style={{ padding: 0, overflow: "hidden" }}>
+              <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: T.text }}>Vista previa — {preview.length} producto{preview.length > 1 ? "s" : ""} detectado{preview.length > 1 ? "s" : ""}</div>
+                  <div style={{ fontSize: 12, color: T.sub, marginTop: 2 }}>Revisa que los datos sean correctos antes de importar</div>
+                </div>
+                <Btn onClick={importAll}>{importing ? "Importando..." : "✅ Importar todo"}</Btn>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <TH>Producto Dropi</TH>
+                      <TH>Coincide con</TH>
+                      <TH>Total Pedidos</TH>
+                      <TH>Confirmados</TH>
+                      <TH>Entregados</TH>
+                      <TH>Devoluciones</TH>
+                      <TH>Unidades</TH>
+                      <TH>Ventas Netas</TH>
+                      <TH>Costo Flete</TH>
+                      <TH>Costo Proveedor</TH>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.map((r, i) => (
+                      <tr key={i} style={{ background: i % 2 === 0 ? T.white : T.bg }}>
+                        <TD bold>{r.nombreDropi}</TD>
+                        <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+                          {r.matched
+                            ? <span style={{ background: T.greenBg, color: T.green, borderRadius: 6, padding: "2px 8px", fontSize: 12, fontWeight: 700 }}>✓ {r.productoNombre}</span>
+                            : <span style={{ background: T.yellowBg, color: T.yellow, borderRadius: 6, padding: "2px 8px", fontSize: 12, fontWeight: 700 }}>⚠ Sin coincidir</span>
+                          }
+                        </td>
+                        <TD>{r.pedidosTotales}</TD>
+                        <TD color={T.accent}>{r.confirmados}</TD>
+                        <TD color={T.green} bold>{r.entregados}</TD>
+                        <TD color={r.devoluciones > 0 ? T.red : T.sub}>{r.devoluciones}</TD>
+                        <TD>{r.unidades}</TD>
+                        <TD color={T.green}>{clp(r.ventasFacturadas)}</TD>
+                        <TD color={T.red}>{clp(r.costoFlete)}</TD>
+                        <TD color={T.red}>{clp(r.costoProveedor)}</TD>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {preview.some(r => !r.matched) && (
+                <div style={{ padding: "12px 20px", background: T.yellowBg, borderTop: `1px solid ${T.border}`, fontSize: 13, color: T.yellow, fontWeight: 600 }}>
+                  ⚠️ Algunos productos no coinciden con tu catálogo. Ve a "Mis Productos" y asegúrate de que los nombres sean similares a los de Dropi.
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Instrucciones si no hay archivos */}
+          {!dropiData && !shopifyData && (
+            <Card style={{ background: T.bg }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 12 }}>📋 ¿Cómo obtener los archivos?</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, fontSize: 13, color: T.sub, lineHeight: 1.7 }}>
+                <div>
+                  <div style={{ fontWeight: 700, color: T.text, marginBottom: 6 }}>📦 Excel de Dropi</div>
+                  1. Entra a tu panel de Dropi<br/>
+                  2. Ve a Órdenes → Reporte de Productos<br/>
+                  3. Filtra por fecha y descarga el Excel (.xlsx)
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, color: T.text, marginBottom: 6 }}>🛍️ CSV de Shopify</div>
+                  1. Entra a tu panel de Shopify<br/>
+                  2. Ve a Informes → Ventas por producto<br/>
+                  3. Selecciona el rango de fechas y exporta el CSV
+                </div>
+              </div>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── APP ──────────────────────────────────────────────────────────────────────
-const NAV = [["calculadora","🧮","Calculadora"],["productos","📦","Mis Productos"],["registro","➕","Registro Diario"],["dashboard","📊","Dashboard"],["simulaciones","🔮","Simulaciones"]];
+const NAV = [["calculadora","🧮","Calculadora"],["productos","📦","Mis Productos"],["registro","➕","Registro Diario"],["importar","📥","Importar Datos"],["dashboard","📊","Dashboard"],["simulaciones","🔮","Simulaciones"]];
 
 export default function App() {
   const stored = hydrate();
@@ -1074,7 +1359,7 @@ export default function App() {
 
   useEffect(() => persist({ cfg, productos, entries }), [cfg, productos, entries]);
 
-  const headers = { calculadora: ["Calculadora de Precios","Costeo completo con análisis de 2ª unidad, BEROAS y ganancia proyectada"], productos: ["Mis Productos","Catálogo con costeo, antecedentes de investigación y links de anuncios"], registro: ["Registro Diario","Testeos con métricas de ads (CPM, CPC, CTR) + checklist de calidad"], dashboard: ["Dashboard","Análisis de rentabilidad, gráficos y resumen por producto"], simulaciones: ["Simulaciones","Proyecta rentabilidad en escenario ácido, base y optimista"] };
+  const headers = { calculadora: ["Calculadora de Precios","Costeo completo con análisis de 2ª unidad, BEROAS y ganancia proyectada"], productos: ["Mis Productos","Catálogo con costeo, antecedentes de investigación y links de anuncios"], registro: ["Registro Diario","Testeos con métricas de ads (CPM, CPC, CTR) + checklist de calidad"], importar: ["Importar Datos","Sube el Excel de Dropi y el CSV de Shopify para generar el registro automáticamente"], dashboard: ["Dashboard","Análisis de rentabilidad, gráficos y resumen por producto"], simulaciones: ["Simulaciones","Proyecta rentabilidad en escenario ácido, base y optimista"] };
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: T.bg, fontFamily: "'Nunito', 'Sora', 'Segoe UI', sans-serif" }}>
@@ -1112,6 +1397,7 @@ export default function App() {
           {page === "calculadora"  && <Calculadora cfg={cfg} setCfg={setCfg} productos={productos} />}
           {page === "productos"    && <MisProductos productos={productos} setProductos={setProductos} cfg={cfg} />}
           {page === "registro"     && <Registro entries={entries} setEntries={setEntries} productos={productos} cfg={cfg} />}
+          {page === "importar"     && <Importar productos={productos} setEntries={setEntries} entries={entries} />}
           {page === "dashboard"    && <Dashboard entries={entries} productos={productos} cfg={cfg} />}
           {page === "simulaciones" && <Simulaciones cfg={cfg} productos={productos} />}
         </div>
