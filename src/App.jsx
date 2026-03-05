@@ -1832,6 +1832,29 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
   );
 }
 
+
+// ─── PRODUCTOS POR DEFECTO ────────────────────────────────────────────────────
+const DEFAULT_PRODUCTOS = [
+  { id:"p1",  nombre:"Cepillo Alisador",         precioVenta:23990, costoProducto:2700, costoEnvio:7000, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"",    proveedor:"" },
+  { id:"p2",  nombre:"Lima Pies",                precioVenta:23990, costoProducto:4900, costoEnvio:6200, cpaEstimado:7445,  tasaConf:100,tasaEnt:100,idDropi:"10431",proveedor:"" },
+  { id:"p3",  nombre:"Picatodo",                 precioVenta:27990, costoProducto:7500, costoEnvio:6200, cpaEstimado:8000,  tasaConf:75, tasaEnt:75, idDropi:"",    proveedor:"" },
+  { id:"p4",  nombre:"Masajeador Facial",        precioVenta:24990, costoProducto:11000,costoEnvio:6200, cpaEstimado:8000,  tasaConf:75, tasaEnt:75, idDropi:"24036",proveedor:"Liquidambar" },
+  { id:"p5",  nombre:"Balsamo Facial",           precioVenta:10990, costoProducto:3200, costoEnvio:6200, cpaEstimado:8000,  tasaConf:75, tasaEnt:75, idDropi:"91556",proveedor:"Importadora Oferfly" },
+  { id:"p6",  nombre:"Removedor Callos 2",       precioVenta:23990, costoProducto:4500, costoEnvio:6200, cpaEstimado:4604,  tasaConf:100,tasaEnt:100,idDropi:"10431",proveedor:"RVG sp" },
+  { id:"p7",  nombre:"Almohadilla Colicos",      precioVenta:24990, costoProducto:5990, costoEnvio:6200, cpaEstimado:8000,  tasaConf:100,tasaEnt:100,idDropi:"",    proveedor:"" },
+  { id:"p8",  nombre:"Removedor Callos 1",       precioVenta:26990, costoProducto:4900, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"10431",proveedor:"RVG sp" },
+  { id:"p9",  nombre:"Cuadernos Montessori",     precioVenta:28990, costoProducto:2600, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"",    proveedor:"" },
+  { id:"p10", nombre:"Guantes Mascotas",         precioVenta:23990, costoProducto:1800, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"",    proveedor:"" },
+  { id:"p11", nombre:"Cepillo Vapor",            precioVenta:14990, costoProducto:0,    costoEnvio:0,    cpaEstimado:0,     tasaConf:75, tasaEnt:75, idDropi:"",    proveedor:"" },
+  { id:"p12", nombre:"Soporte Celular",          precioVenta:25990, costoProducto:3800, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"78330",proveedor:"Meibo" },
+  { id:"p13", nombre:"Desinfectante Dientes UV", precioVenta:26990, costoProducto:4990, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"75492",proveedor:"Anacaona spa" },
+  { id:"p14", nombre:"Basurero Portatil",        precioVenta:24990, costoProducto:3500, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"40206",proveedor:"Meibo" },
+  { id:"p15", nombre:"Secador Zapatos",          precioVenta:30990, costoProducto:6900, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"56094",proveedor:"Meibo" },
+  { id:"p16", nombre:"Levanta Muebles",          precioVenta:24990, costoProducto:3500, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"27261",proveedor:"Meibo" },
+  { id:"p17", nombre:"Selladora Al Vacio",       precioVenta:29990, costoProducto:5800, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"48988",proveedor:"Meibo" },
+  { id:"p18", nombre:"Bolsas Selladora",         precioVenta:15990, costoProducto:2800, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"88817",proveedor:"Las Dalias" },
+];
+
 // ─── APP ──────────────────────────────────────────────────────────────────────
 const NAV = [
   ["campanas",   "📡", "Campañas Ads"],
@@ -1847,7 +1870,7 @@ export default function App() {
   const stored = hydrate();
   const [page, setPage]           = useState("campanas");
   const [cfg, setCfg]             = useState(stored.cfg || GCFG);
-  const [productos, setProductos] = useState(stored.productos || []);
+  const [productos, setProductos] = useState(stored.productos?.length > 0 ? stored.productos : DEFAULT_PRODUCTOS);
   const [entries, setEntries]     = useState(stored.entries || []);
   const [savedCampanas, setSavedCampanas] = useState(stored.campanas || []);
   const [dateRange, setDateRange] = useState(stored.dateRange || { from: hace30(), to: hoy() });
