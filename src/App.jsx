@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, AreaChart, Area } from "recharts";
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
-const SK = "drofitv3";
+const SK = "drofitv4"; // bumped to clear old cached TikTok data
 const persist = (d) => { try { localStorage.setItem(SK, JSON.stringify(d)); } catch {} };
 const hydrate = () => { try { return JSON.parse(localStorage.getItem(SK)) || {}; } catch { return {}; } };
 // Fecha helpers
@@ -1483,9 +1483,12 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
         const byCamp = {};
         campRows.forEach(r => {
           const nombre = str(r,"Campaign name","Nombre de la cuenta","Campaign Name");
-          if (!byCamp[nombre]) byCamp[nombre] = {gastado:0,compras:0,clics:0,imps:0,cpa:0};
+          if (!byCamp[nombre]) byCamp[nombre] = {gastado:0,compras:0,clics:0,imps:0};
           byCamp[nombre].gastado += get(r,"Cost","Coste","Spend");
-          byCamp[nombre].compras += get(r,"Conversions","Conversiones");
+          // IMPORTANTE: leer Conversions (col 10) NO "Cost per conversion" (col 11)
+          const convVal = r["Conversions"] !== undefined ? parseFloat(r["Conversions"])||0 :
+                          r["Conversiones"] !== undefined ? parseFloat(r["Conversiones"])||0 : 0;
+          byCamp[nombre].compras += convVal;
           byCamp[nombre].clics   += get(r,"Clicks (destination)","Clics (destino)","Clicks");
           byCamp[nombre].imps    += get(r,"Impressions","Impresiones");
         });
