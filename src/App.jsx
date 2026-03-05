@@ -1567,7 +1567,7 @@ function Campanas({ productos, cfg }) {
 
   const dropZone = (label, icon, onChange, loaded) => (
     <label style={{ display:"flex", alignItems:"center", gap:12, border:`2px dashed ${loaded?T.green:T.border}`, borderRadius:12, padding:"16px 20px", cursor:"pointer", background:loaded?T.greenBg:T.inputBg }}>
-      <input type="file" style={{ display:"none" }} onChange={onChange} accept={"label.includes("TikTok")?".xlsx,.xls,.csv":".csv""} />
+      <input type="file" style={{ display:"none" }} onChange={onChange} accept={label.includes("TikTok")?".xlsx,.xls,.csv":".csv"} />
       <div style={{ fontSize:28 }}>{loaded?"✅":icon}</div>
       <div>
         <div style={{ fontWeight:700, fontSize:13, color:loaded?T.green:T.text }}>{loaded?"Cargado — click para reemplazar":label}</div>
