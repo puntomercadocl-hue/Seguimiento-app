@@ -1389,257 +1389,132 @@ function Importar({ productos, setEntries }) {
 
 // ─── ANÁLISIS DE CAMPAÑAS ─────────────────────────────────────────────────────
 function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }) {
-  const [campanas, setCampanas] = useState(savedCampanas || []);
-  const [plat, setPlat]         = useState("Todos");
-  const [sort, setSort]         = useState("rentabilidad");
-  const [prodOverrides, setProdOverrides] = useState({});
-  // Persistir campanas cuando cambian
-  useEffect(() => { if(campanas.length > 0) setSavedCampanas(campanas); }, [campanas]);
+  const EMPTY = { plataforma:"Meta", nombre:"", gastado:"", compras:"", clics:"", roas:"", ctr:"", cpm:"", cpc:"", productoId:"", periodo:"" };
+  const [campanas, setCampanas]   = useState(savedCampanas || []);
+  const [plat, setPlat]           = useState("Todos");
+  const [sort, setSort]           = useState("urgencia");
+  const [form, setForm]           = useState(EMPTY);
+  const [editIdx, setEditIdx]     = useState(null);
+  const [showForm, setShowForm]   = useState(false);
 
-  const handleMeta = (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const lines = ev.target.result.split("\n").filter(l => l.trim());
-        const hdrs  = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g,""));
-        const rows  = [];
-        lines.slice(1).forEach(line => {
-          const cols = []; let cur = "", inQ = false;
-          for (const ch of line) {
-            if (ch==='"') inQ=!inQ;
-            else if (ch===',' && !inQ) { cols.push(cur.trim()); cur=""; }
-            else cur+=ch;
-          }
-          cols.push(cur.trim());
-          const r = {}; hdrs.forEach((h,i) => r[h]=cols[i]||"");
-          if (!r["Nombre de la campaña"]) return;
-          rows.push({
-            plataforma : "Meta",
-            nombre     : r["Nombre de la campaña"],
-            periodo    : r["Mes"]||"",
-            estado     : r["Estado de la entrega"]||"",
-            gastado    : parseFloat(r["Importe gastado (CLP)"]||0),
-            compras    : parseFloat(r["Compras"]||0),
-            roas       : parseFloat(r["ROAS (retorno de la inversión en publicidad) de compras"]||0),
-            cpa        : parseFloat(r["Costo por compra"]||0),
-            ctr        : parseFloat(r["CTR (porcentaje de clics en el enlace)"]||0),
-            cpm        : parseFloat(r["CPM (costo por mil impresiones)"]||0),
-            cpc        : parseFloat(r["CPC (costo por clic en el enlace)"]||0),
-            clics      : parseFloat(r["Clics únicos en el enlace"]||0),
-          });
-        });
-        setCampanas(prev => [...prev.filter(c=>c.plataforma!=="Meta"), ...rows]);
-        setPlat("Meta");
-      } catch { alert("Error leyendo CSV de Meta"); }
+  useEffect(() => { setSavedCampanas(campanas); }, [campanas]);
+
+  const guardar = () => {
+    if (!form.nombre.trim()) return alert("Ingresa el nombre de la campaña");
+    const c = {
+      plataforma : form.plataforma,
+      nombre     : form.nombre.trim(),
+      periodo    : form.periodo || dateRange?.from || "",
+      estado     : "active",
+      gastado    : parseFloat(String(form.gastado).replace(/[$.]/g,"").replace(",",".")) || 0,
+      compras    : parseFloat(form.compras) || 0,
+      clics      : parseFloat(form.clics)   || 0,
+      roas       : parseFloat(form.roas)    || 0,
+      ctr        : parseFloat(form.ctr)     || 0,
+      cpm        : parseFloat(form.cpm)     || 0,
+      cpc        : parseFloat(form.cpc)     || 0,
+      productoId : form.productoId || "",
     };
-    reader.readAsText(file, "utf-8");
+    c.cpa = c.compras > 0 ? Math.round(c.gastado / c.compras) : 0;
+    if (editIdx !== null) {
+      setCampanas(prev => prev.map((x,i) => i===editIdx ? c : x));
+      setEditIdx(null);
+    } else {
+      setCampanas(prev => [...prev, c]);
+    }
+    setForm(EMPTY);
+    setShowForm(false);
   };
 
-  const handleTikTok = (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    const isCSV = file.name.toLowerCase().endsWith(".csv");
-    const reader = new FileReader();
-    const parseTikTokRows = (rows) => {
-      if (!rows || rows.length === 0) return;
-      const keys = Object.keys(rows[0]);
-      const firstKey = keys[0]||"";
+  const editar = (idx) => {
+    const c = campanas[idx];
+    setForm({ ...c, gastado: c.gastado, compras: c.compras, clics: c.clics });
+    setEditIdx(idx);
+    setShowForm(true);
+    window.scrollTo({top:0,behavior:"smooth"});
+  };
 
-      // Nombres de columna conocidos de TikTok (ES e EN)
-      const get = (r, ...names) => { for(const n of names){ if(r[n]!==undefined && r[n]!=="") return parseFloat(r[n])||0; } return 0; };
-      const str = (r, ...names) => { for(const n of names){ if(r[n] && String(r[n]).trim()) return String(r[n]).trim(); } return ""; };
-
-      // Detectar si es por día (primera columna tiene fechas o se llama "Por día" / "Date")
-      const isPorDia = firstKey==="Por día" || firstKey==="Date" ||
-        rows.slice(0,3).some(r => /^\d{4}-\d{2}-\d{2}$/.test(String(r[firstKey]||"").trim()));
-
-      if (isPorDia) {
-        const dataRows = rows.filter(r => {
-          const v = String(r[firstKey]||"").trim();
-          return /^\d{4}-\d{2}-\d{2}$/.test(v);
-        });
-        const t = dataRows.reduce((acc,r) => {
-          acc.gastado += get(r,"Coste","Cost","Spend");
-          acc.compras += get(r,"Conversiones","Conversions");
-          acc.clics   += get(r,"Clics (destino)","Clicks (destination)","Clicks");
-          acc.imps    += get(r,"Impresiones","Impressions");
-          return acc;
-        }, {gastado:0, compras:0, clics:0, imps:0});
-        const cpa = t.compras>0 ? Math.round(t.gastado/t.compras) : 0;
-        const cpm = t.imps>0   ? Math.round((t.gastado/t.imps)*1000) : 0;
-        const cpc = t.clics>0  ? Math.round(t.gastado/t.clics) : 0;
-        const ctr = t.imps>0   ? +((t.clics/t.imps)*100).toFixed(2) : 0;
-        setCampanas(prev => [...prev.filter(c=>c.plataforma!=="TikTok"), {
-          plataforma:"TikTok", nombre:"TikTok Ads — Punto Mercado",
-          periodo:`${dataRows.length} días`, estado:"active",
-          gastado:t.gastado, compras:t.compras, roas:0, cpa, ctr, cpm, cpc, clics:t.clics,
-        }]);
-      } else {
-        const campRows = rows.filter(r => {
-          const n = str(r,"Campaign name","Nombre de la cuenta","Ad Group Name","Campaign Name");
-          return n && !n.startsWith("Total") && !n.toLowerCase().startsWith("total");
-        });
-        // Agrupar por nombre de campaña (puede haber múltiples ad groups por campaña)
-        const byCamp = {};
-        campRows.forEach(r => {
-          const nombre = str(r,"Campaign name","Nombre de la cuenta","Campaign Name");
-          if (!byCamp[nombre]) byCamp[nombre] = {gastado:0,compras:0,clics:0,imps:0};
-          byCamp[nombre].gastado += get(r,"Cost","Coste","Spend");
-          // CRÍTICO: leer EXACTAMENTE "Conversions" no "Cost per conversion"
-          const rawConv = r["Conversions"];
-          const rawConvEs = r["Conversiones"];
-          const convVal = rawConv !== undefined && rawConv !== "" && rawConv !== "-"
-            ? parseFloat(rawConv)||0
-            : rawConvEs !== undefined && rawConvEs !== "" && rawConvEs !== "-"
-            ? parseFloat(rawConvEs)||0
-            : 0;
-          byCamp[nombre].compras += convVal;
-          byCamp[nombre].clics   += get(r,"Clicks (destination)","Clics (destino)","Clicks");
-          byCamp[nombre].imps    += get(r,"Impressions","Impresiones");
-        });
-        const mapped = Object.entries(byCamp).map(([nombre, t]) => ({
-          plataforma:"TikTok", nombre, periodo:"", estado:"active",
-          gastado : t.gastado,
-          compras : t.compras,
-          roas    : 0,
-          cpa     : t.compras>0 ? Math.round(t.gastado/t.compras) : 0,
-          ctr     : t.imps>0 ? +((t.clics/t.imps)*100).toFixed(2) : 0,
-          cpm     : t.imps>0 ? Math.round((t.gastado/t.imps)*1000) : 0,
-          cpc     : t.clics>0 ? Math.round(t.gastado/t.clics) : 0,
-          clics   : t.clics,
-        }));
-        setCampanas(prev => [...prev.filter(c=>c.plataforma!=="TikTok"), ...mapped]);
-      }
-      setPlat("TikTok");
-    };
-    const parseRows = parseTikTokRows;
-    reader.onload = (ev) => {
-      try {
-        if (isCSV) {
-          const lines = ev.target.result.split("\n").filter(l=>l.trim());
-          const hdrs  = lines[0].split(",").map(h=>h.trim().replace(/^"|"$/g,""));
-          const rows  = lines.slice(1).map(line => {
-            const cols=[]; let cur="", inQ=false;
-            for(const ch of line){ if(ch==='"') inQ=!inQ; else if(ch===','&&!inQ){cols.push(cur.trim());cur="";}else cur+=ch; }
-            cols.push(cur.trim());
-            const r={}; hdrs.forEach((h,i)=>r[h]=(cols[i]||"").replace(/^"|"$/g,"").trim()); return r;
-          }).filter(r=>Object.values(r).some(v=>v) && !String(r[hdrs[0]]||"").startsWith("Total"));
-          parseRows(rows);
-        } else {
-          const wb   = window.XLSX.read(ev.target.result, { type:"array" });
-          const ws   = wb.Sheets[wb.SheetNames[0]];
-          const rows = window.XLSX.utils.sheet_to_json(ws, { defval:"" });
-          parseRows(rows);
-        }
-      } catch(err) { alert("Error leyendo archivo de TikTok. Verifica que sea CSV o Excel."); }
-    };
-    if (isCSV) reader.readAsText(file, "utf-8");
-    else reader.readAsArrayBuffer(file);
+  const eliminar = (idx) => {
+    if (!confirm("¿Eliminar esta campaña?")) return;
+    setCampanas(prev => prev.filter((_,i)=>i!==idx));
   };
 
   // ── Enriquecer cada campaña con datos del catálogo ──
-  const enriquecidas = campanas.map((c, idx) => {
-    // Usar override manual si existe
-    const overrideProd = prodOverrides[idx] ? productos.find(p=>p.id===prodOverrides[idx]) : null;
-    // Intentar coincidir campaña con producto del catálogo
-    const prod = overrideProd || productos.find(p => {
-      const np = (p.nombre||"").toUpperCase();
-      const nc = c.nombre.toUpperCase();
-      // Match por palabras en común
-      const matchPalabras = np.split(" ").filter(w=>w.length>3).some(w => nc.includes(w)) ||
-             nc.split(/[\s-]+/).filter(w=>w.length>3).some(w => np.includes(w));
-      if (matchPalabras) return true;
-      // Si la campaña es TikTok consolidada ("TikTok Ads") y solo hay 1 producto → asignar automáticamente
-      if (nc.includes("TIKTOK ADS") && productos.length === 1) return true;
-      return false;
-    }) || (
-      // Fallback: si no hay match por nombre pero es TikTok consolidado, usar el producto con más costeo cargado
-      c.nombre.toUpperCase().includes("TIKTOK ADS") && productos.length > 0
-        ? productos.find(p => p.costoUnitario && p.precioVenta) || null
-        : null
-    );
+  const enriquecidas = campanas.map((c) => {
+    const prod = (c.productoId ? productos.find(p=>p.id===c.productoId) : null)
+      || productos.find(p => {
+        const np = (p.nombre||"").toUpperCase();
+        const nc = (c.nombre||"").toUpperCase();
+        return np.split(" ").filter(w=>w.length>3).some(w=>nc.includes(w)) ||
+               nc.split(/[\s-]+/).filter(w=>w.length>3).some(w=>np.includes(w));
+      }) || null;
+
     const costeo = prod ? calcCosteo(prod, cfg) : null;
-    const beroas  = costeo?.beroas  || null;
-    const cpaMax  = costeo?.cpaMax  || null;
+    const beroas  = costeo?.beroas || null;
+    const cpaMax  = costeo?.cpaMax || null;
     const utilUnit= costeo?.utilUnitReal || null;
 
-    // Si TikTok no reporta ROAS pero tenemos CPA y precio del producto → estimarlo
     const roasEfectivo = c.roas > 0
       ? c.roas
       : (c.cpa > 0 && prod?.precioVenta)
         ? +((prod.precioVenta * (prod.tasaEnt||75)/100) / c.cpa).toFixed(2)
         : 0;
 
-    // ── Lógica de decisión basada en RENTABILIDAD, no solo CPA ──
     let decision, razon, urgencia = 0;
-
     if (c.compras === 0 && c.gastado > 8000) {
-      decision = "pausar";
+      decision = "pausar"; urgencia = 3;
       razon = `Gastaste ${clp(c.gastado)} sin ninguna compra. No hay señal de mercado.`;
-      urgencia = 3;
     } else if (c.compras === 0 && c.gastado <= 8000) {
-      decision = "revisar";
+      decision = "revisar"; urgencia = 1;
       razon = "Poco gasto y sin compras aún. Dale más presupuesto o revisa el creativo.";
-      urgencia = 1;
-    } else if (beroas !== null && c.roas > 0) {
-      const margen = (c.roas - beroas) / beroas; // qué tan lejos está del break-even
-      if (c.roas >= beroas * 1.4) {
-        decision = "escalar";
-        razon = `ROAS ${c.roas.toFixed(1)}x vs BEROAS ${beroas.toFixed(1)}x — estás ${((c.roas/beroas-1)*100).toFixed(0)}% sobre el break-even. Sube el presupuesto.`;
-        urgencia = 0;
-      } else if (c.roas >= beroas) {
-        decision = "mantener";
-        razon = `Rentable pero justo en el límite. Optimiza creativos antes de escalar.`;
-        urgencia = 1;
-      } else if (c.roas >= beroas * 0.7) {
-        decision = "optimizar";
-        razon = `ROAS ${c.roas.toFixed(1)}x, necesitas ${beroas.toFixed(1)}x para cubrir costos. Ajusta segmentación o creativos.`;
-        urgencia = 2;
+    } else if (beroas !== null && roasEfectivo > 0) {
+      const esEst = c.roas === 0;
+      const tag = esEst ? " (est.)" : "";
+      if (roasEfectivo >= beroas * 1.4) {
+        decision = "escalar"; urgencia = 0;
+        razon = `ROAS ${roasEfectivo.toFixed(1)}x${tag} vs BEROAS ${beroas.toFixed(1)}x — ${((roasEfectivo/beroas-1)*100).toFixed(0)}% sobre el break-even. Sube el presupuesto.`;
+      } else if (roasEfectivo >= beroas) {
+        decision = "mantener"; urgencia = 1;
+        razon = `ROAS ${roasEfectivo.toFixed(1)}x${tag} — rentable pero en el límite. Optimiza antes de escalar.`;
+      } else if (roasEfectivo >= beroas * 0.7) {
+        decision = "optimizar"; urgencia = 2;
+        razon = `ROAS ${roasEfectivo.toFixed(1)}x${tag}, necesitas ${beroas.toFixed(1)}x para cubrir costos.`;
       } else {
-        decision = "pausar";
-        razon = `ROAS ${c.roas.toFixed(1)}x muy por debajo del BEROAS ${beroas.toFixed(1)}x. Estás perdiendo dinero.`;
-        urgencia = 3;
+        decision = "pausar"; urgencia = 3;
+        razon = `ROAS ${roasEfectivo.toFixed(1)}x${tag} muy bajo vs BEROAS ${beroas.toFixed(1)}x. Estás perdiendo dinero.`;
       }
-    } else if (c.roas >= 5) {
-      decision = "escalar";
-      razon = `ROAS ${c.roas.toFixed(1)}x es excelente. Carga el costeo del producto para confirmar.`;
-      urgencia = 0;
-    } else if (c.roas >= 3) {
-      decision = "mantener";
-      razon = `ROAS ${c.roas.toFixed(1)}x parece sano. Carga el costeo para tomar mejor decisión.`;
-      urgencia = 1;
-    } else if (c.roas > 0) {
-      decision = "optimizar";
-      razon = `ROAS ${c.roas.toFixed(1)}x bajo. Sin costeo cargado no podemos confirmar si es rentable.`;
-      urgencia = 2;
+    } else if (roasEfectivo >= 5) {
+      decision = "escalar"; urgencia = 0;
+      razon = `ROAS ${roasEfectivo.toFixed(1)}x excelente. Asigna el producto para confirmar.`;
+    } else if (roasEfectivo >= 3) {
+      decision = "mantener"; urgencia = 1;
+      razon = `ROAS ${roasEfectivo.toFixed(1)}x parece sano. Asigna producto para decisión exacta.`;
+    } else if (roasEfectivo > 0) {
+      decision = "optimizar"; urgencia = 2;
+      razon = `ROAS ${roasEfectivo.toFixed(1)}x bajo. Asigna el producto para ver si es rentable.`;
     } else {
-      decision = "sin_datos";
-      razon = "Carga el producto en el catálogo para ver la rentabilidad real.";
-      urgencia = 0;
+      decision = "sin_datos"; urgencia = 0;
+      razon = "Asigna el producto para ver la rentabilidad real.";
     }
 
-    // Ganancia estimada = compras × utilidad unitaria
     const gananciaEst = (prod && utilUnit != null) ? c.compras * utilUnit - c.gastado : null;
-
-    return { ...c, prod, beroas, cpaMax, utilUnit, decision, razon, urgencia, gananciaEst };
+    return { ...c, prod, beroas, cpaMax, utilUnit, roasEfectivo, decision, razon, urgencia, gananciaEst };
   });
 
   const platFiltradas = plat==="Todos" ? enriquecidas : enriquecidas.filter(c=>c.plataforma===plat);
-  const sorted = [...platFiltradas].sort((a,b) => {
-    if (sort==="rentabilidad") return (b.roas||0)-(a.roas||0);
-    if (sort==="gastado")      return b.gastado-a.gastado;
+  const sorted = [...platFiltradas].sort((a,b)=>{
     if (sort==="urgencia")     return b.urgencia-a.urgencia;
+    if (sort==="rentabilidad") return (b.roasEfectivo||0)-(a.roasEfectivo||0);
+    if (sort==="gastado")      return b.gastado-a.gastado;
     return 0;
   });
 
-  // KPIs globales
   const totalGastado = platFiltradas.reduce((s,c)=>s+c.gastado,0);
   const totalCompras = platFiltradas.reduce((s,c)=>s+c.compras,0);
-  const roasProm     = platFiltradas.filter(c=>c.roas>0).length
-    ? platFiltradas.filter(c=>c.roas>0).reduce((s,c)=>s+c.roas,0)/platFiltradas.filter(c=>c.roas>0).length : 0;
-  const nEscalar  = platFiltradas.filter(c=>c.decision==="escalar").length;
-  const nPausar   = platFiltradas.filter(c=>c.decision==="pausar").length;
-  const ganTotal  = platFiltradas.reduce((s,c)=>s+(c.gananciaEst||0),0);
+  const roasProm     = platFiltradas.filter(c=>c.roasEfectivo>0).length
+    ? platFiltradas.filter(c=>c.roasEfectivo>0).reduce((s,c)=>s+c.roasEfectivo,0)/platFiltradas.filter(c=>c.roasEfectivo>0).length : 0;
+  const nEscalar = platFiltradas.filter(c=>c.decision==="escalar").length;
+  const nPausar  = platFiltradas.filter(c=>c.decision==="pausar").length;
 
   const DECISION = {
     escalar  : { bg:"#d1fae5", color:"#059669", icon:"🚀", label:"Escalar" },
@@ -1650,40 +1525,84 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
     sin_datos: { bg:T.bg, color:T.sub, icon:"—", label:"Sin datos" },
   };
 
-  const dropZone = (label, icon, onChange, loaded) => (
-    <label style={{ display:"flex", alignItems:"center", gap:12, border:`2px dashed ${loaded?T.green:T.border}`, borderRadius:12, padding:"16px 20px", cursor:"pointer", background:loaded?T.greenBg:T.inputBg }}>
-      <input type="file" style={{ display:"none" }} onChange={onChange} accept={label.includes("TikTok")?".xlsx,.xls,.csv":".csv"} />
-      <div style={{ fontSize:28 }}>{loaded?"✅":icon}</div>
-      <div>
-        <div style={{ fontWeight:700, fontSize:13, color:loaded?T.green:T.text }}>{loaded?"Cargado — click para reemplazar":label}</div>
-        <div style={{ fontSize:11, color:T.sub, marginTop:2 }}>{label.includes("TikTok")?"Archivo .xlsx de TikTok Ads Manager":"Archivo .csv de Meta Ads Manager"}</div>
-      </div>
-    </label>
+  const inp = (label, field, opts={}) => (
+    <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+      <label style={{ fontSize:11, fontWeight:700, color:T.sub, textTransform:"uppercase" }}>{label}</label>
+      {opts.type==="select" ? (
+        <select value={form[field]} onChange={e=>setForm(f=>({...f,[field]:e.target.value}))}
+          style={{ padding:"8px 10px", borderRadius:8, border:`1.5px solid ${T.border}`, fontSize:13, background:T.inputBg, fontFamily:"inherit" }}>
+          {opts.options.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+        </select>
+      ) : (
+        <input type={opts.type||"text"} value={form[field]} placeholder={opts.placeholder||""}
+          onChange={e=>setForm(f=>({...f,[field]:e.target.value}))}
+          style={{ padding:"8px 10px", borderRadius:8, border:`1.5px solid ${T.border}`, fontSize:13, background:T.inputBg, fontFamily:"inherit", outline:"none" }} />
+      )}
+    </div>
   );
 
   return (
     <div style={{ display:"grid", gap:20 }}>
 
-      {/* Upload */}
+      {/* Botón agregar + form */}
       <Card>
-        <SectionTitle icon="📡" title="Importar Reportes de Ads" sub="Conecta Meta y TikTok para ver rentabilidad real por campaña" />
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom: campanas.length===0?14:0 }}>
-          {dropZone("🔵 Meta Ads — CSV", "🔵", handleMeta, campanas.some(c=>c.plataforma==="Meta"))}
-          {dropZone("🎵 TikTok Ads — CSV o Excel", "🎵", handleTikTok, campanas.some(c=>c.plataforma==="TikTok"))}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: showForm?16:0 }}>
+          <SectionTitle icon="📡" title="Campañas de Ads" sub="Ingresa los datos de cada campaña manualmente" />
+          <button onClick={()=>{ setShowForm(s=>!s); setEditIdx(null); setForm(EMPTY); }}
+            style={{ padding:"9px 18px", borderRadius:10, background:showForm?T.border:T.accent, color:showForm?T.text:T.white, fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+            {showForm ? "Cancelar" : "+ Nueva campaña"}
+          </button>
         </div>
-        {campanas.length > 0 && (
-          <div style={{ marginTop:12, display:"flex", alignItems:"center", gap:8, fontSize:12, color:T.sub }}>
-            <span>📅 Mostrando datos del período:</span>
-            <span style={{ fontWeight:700, color:T.accent }}>{dateRange?.from} → {dateRange?.to}</span>
-            <span style={{ color:T.sub }}>· Última carga guardada automáticamente</span>
-          </div>
-        )}
-        {campanas.length===0 && (
-          <div style={{ background:T.accentL, borderRadius:10, padding:"12px 16px", fontSize:13, color:T.accent, fontWeight:600 }}>
-            💡 La app cruza tus campañas con el costeo de tus productos para decirte si eres rentable — no si el CPA es bajo. Un CPA alto puede estar bien si el margen lo aguanta.
+
+        {showForm && (
+          <div style={{ borderTop:`1px solid ${T.border}`, paddingTop:16 }}>
+            <div style={{ fontWeight:700, fontSize:14, color:T.text, marginBottom:14 }}>
+              {editIdx!==null ? "✏️ Editar campaña" : "➕ Nueva campaña"}
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:12 }}>
+              {inp("Plataforma", "plataforma", { type:"select", options:[["Meta","🔵 Meta"],["TikTok","🎵 TikTok"]] })}
+              {inp("Nombre campaña", "nombre", { placeholder:"Ej: Maquina bolsas - 26-02" })}
+              {inp("Período / Fecha", "periodo", { placeholder:"Ej: 2026-01-01 → 2026-03-05" })}
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:12 }}>
+              {inp("Gastado ($)", "gastado", { placeholder:"104460", type:"number" })}
+              {inp("Compras", "compras", { placeholder:"18", type:"number" })}
+              {inp("Clics", "clics", { placeholder:"1818", type:"number" })}
+              {inp("ROAS (si lo reporta)", "roas", { placeholder:"0 si no aplica", type:"number" })}
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:16 }}>
+              {inp("CTR (%)", "ctr", { placeholder:"2.48", type:"number" })}
+              {inp("CPM", "cpm", { placeholder:"1425", type:"number" })}
+              <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                <label style={{ fontSize:11, fontWeight:700, color:T.sub, textTransform:"uppercase" }}>Producto</label>
+                <select value={form.productoId} onChange={e=>setForm(f=>({...f,productoId:e.target.value}))}
+                  style={{ padding:"8px 10px", borderRadius:8, border:`1.5px solid ${form.productoId?T.accent:T.border}`, fontSize:13, background:form.productoId?T.accentL:T.inputBg, fontFamily:"inherit", color:form.productoId?T.accent:T.text }}>
+                  <option value="">🔗 Seleccionar producto...</option>
+                  {productos.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={guardar}
+                style={{ padding:"10px 24px", borderRadius:10, background:T.accent, color:T.white, fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+                {editIdx!==null ? "💾 Guardar cambios" : "✅ Agregar campaña"}
+              </button>
+              <button onClick={()=>{ setShowForm(false); setEditIdx(null); setForm(EMPTY); }}
+                style={{ padding:"10px 18px", borderRadius:10, background:T.border, color:T.text, fontWeight:600, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+                Cancelar
+              </button>
+            </div>
           </div>
         )}
       </Card>
+
+      {campanas.length === 0 && !showForm && (
+        <div style={{ background:T.accentL, borderRadius:12, padding:"20px 24px", textAlign:"center" }}>
+          <div style={{ fontSize:32, marginBottom:8 }}>📊</div>
+          <div style={{ fontWeight:700, fontSize:15, color:T.accent, marginBottom:6 }}>Sin campañas aún</div>
+          <div style={{ fontSize:13, color:T.sub }}>Haz click en "+ Nueva campaña" para ingresar los datos de tus ads manualmente.</div>
+        </div>
+      )}
 
       {campanas.length > 0 && (<>
 
@@ -1697,7 +1616,7 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
             { label:"⏸ Para Pausar", value:nPausar, color:T.red },
           ].map(({label,value,color})=>(
             <div key={label} style={{ background:T.white, borderRadius:12, padding:"14px 16px", boxShadow:T.shadow }}>
-              <div style={{ fontSize:11, color:T.sub, fontWeight:700, marginBottom:4, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
+              <div style={{ fontSize:11, color:T.sub, fontWeight:700, marginBottom:4, textTransform:"uppercase" }}>{label}</div>
               <div style={{ fontSize:22, fontWeight:900, color }}>{value}</div>
             </div>
           ))}
@@ -1705,18 +1624,18 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
 
         {/* Alertas prioritarias */}
         {sorted.filter(c=>c.decision==="pausar"||c.decision==="escalar").length > 0 && (
-          <Card style={{ background:"#fafafa", border:`1.5px solid ${T.border}` }}>
+          <Card>
             <div style={{ fontWeight:800, fontSize:14, color:T.text, marginBottom:12 }}>⚡ Acciones Prioritarias Ahora</div>
             <div style={{ display:"grid", gap:8 }}>
               {sorted.filter(c=>c.decision==="escalar").map((c,i)=>(
                 <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:12, background:DECISION.escalar.bg, borderRadius:10, padding:"12px 16px" }}>
                   <div style={{ fontSize:20 }}>🚀</div>
-                  <div>
-                    <div style={{ fontWeight:700, fontSize:13, color:DECISION.escalar.color }}>ESCALAR — {c.nombre.replace(/Ventas[-\s]+/i,"").trim()}</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:700, fontSize:13, color:DECISION.escalar.color }}>ESCALAR — {c.nombre}</div>
                     <div style={{ fontSize:12, color:T.sub, marginTop:2 }}>{c.razon}</div>
                   </div>
-                  <div style={{ marginLeft:"auto", textAlign:"right", flexShrink:0 }}>
-                    <div style={{ fontSize:12, color:T.sub }}>Gastado</div>
+                  <div style={{ textAlign:"right", flexShrink:0 }}>
+                    <div style={{ fontSize:11, color:T.sub }}>Gastado</div>
                     <div style={{ fontWeight:800, color:T.text }}>{clp(c.gastado)}</div>
                   </div>
                 </div>
@@ -1724,12 +1643,12 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
               {sorted.filter(c=>c.decision==="pausar").map((c,i)=>(
                 <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:12, background:DECISION.pausar.bg, borderRadius:10, padding:"12px 16px" }}>
                   <div style={{ fontSize:20 }}>⏸</div>
-                  <div>
-                    <div style={{ fontWeight:700, fontSize:13, color:DECISION.pausar.color }}>PAUSAR — {c.nombre.replace(/Ventas[-\s]+/i,"").trim()}</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:700, fontSize:13, color:DECISION.pausar.color }}>PAUSAR — {c.nombre}</div>
                     <div style={{ fontSize:12, color:T.sub, marginTop:2 }}>{c.razon}</div>
                   </div>
-                  <div style={{ marginLeft:"auto", textAlign:"right", flexShrink:0 }}>
-                    <div style={{ fontSize:12, color:T.sub }}>Gastado sin retorno</div>
+                  <div style={{ textAlign:"right", flexShrink:0 }}>
+                    <div style={{ fontSize:11, color:T.sub }}>Gastado sin retorno</div>
                     <div style={{ fontWeight:800, color:T.red }}>{clp(c.gastado)}</div>
                   </div>
                 </div>
@@ -1747,70 +1666,49 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
           </div>
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
             <span style={{ fontSize:12, color:T.sub }}>Ordenar por:</span>
-            {[["rentabilidad","ROAS"],["gastado","Gasto"],["urgencia","Urgencia"]].map(([v,l])=>(
+            {[["urgencia","Urgencia"],["rentabilidad","ROAS"],["gastado","Gasto"]].map(([v,l])=>(
               <button key={v} onClick={()=>setSort(v)} style={{ padding:"6px 14px", borderRadius:20, border:`1.5px solid ${sort===v?T.accent:T.border}`, background:sort===v?T.accentL:T.white, color:sort===v?T.accent:T.sub, fontWeight:sort===v?700:500, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>{l}</button>
             ))}
           </div>
         </div>
 
-        {/* Tabla de campañas */}
+        {/* Tabla */}
         <Card style={{ padding:0, overflow:"hidden" }}>
           <div style={{ overflowX:"auto" }}>
             <table style={{ width:"100%", borderCollapse:"collapse", minWidth:900 }}>
               <thead>
                 <tr style={{ background:T.bg }}>
-                  <TH>Campaña</TH>
-                  <TH>Plataforma</TH>
-                  <TH>Período</TH>
-                  <TH>Gastado</TH>
-                  <TH>Compras</TH>
-                  <TH>ROAS</TH>
-                  <TH>BEROAS</TH>
-                  <TH>CPA Real</TH>
-                  <TH>CPA Máx.</TH>
-                  <TH>CTR</TH>
-                  <TH>Decisión</TH>
+                  <TH>Campaña</TH><TH>Plataforma</TH><TH>Período</TH><TH>Gastado</TH>
+                  <TH>Compras</TH><TH>ROAS</TH><TH>BEROAS</TH><TH>CPA Real</TH>
+                  <TH>CPA Máx.</TH><TH>CTR</TH><TH>Decisión</TH><TH>Acciones</TH>
                 </tr>
               </thead>
               <tbody>
                 {sorted.map((c,i)=>{
                   const D = DECISION[c.decision];
-                  const roasEfectivo = c.roas > 0 ? c.roas : (c.cpa > 0 && c.prod?.precioVenta) ? +((c.prod.precioVenta*(c.prod.tasaEnt||75)/100)/c.cpa).toFixed(2) : 0;
-                  const roasOk = c.beroas ? roasEfectivo >= c.beroas : roasEfectivo >= 3;
+                  const roasOk = c.beroas ? c.roasEfectivo >= c.beroas : c.roasEfectivo >= 3;
+                  const origIdx = campanas.findIndex(x=>x.nombre===c.nombre&&x.gastado===c.gastado);
                   return (
-                    <tr key={i} style={{ background: i%2===0 ? T.white : T.bg, borderBottom:`1px solid ${T.border}` }}>
-                      <td style={{ padding:"12px 14px", maxWidth:220 }}>
-                        <div style={{ fontWeight:700, fontSize:13, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                          {c.nombre.replace(/^Ventas[-\s]+/i,"").replace(/-ABO.*$/i,"").trim()}
-                        </div>
-                        {productos.length > 0 && (
-                          <select
-                            value={prodOverrides[i] || c.prod?.id || ""}
-                            onChange={e => setProdOverrides(prev=>({...prev,[i]:e.target.value}))}
-                            style={{ marginTop:4, fontSize:11, padding:"2px 6px", borderRadius:6, border:`1px solid ${prodOverrides[i]||c.prod?T.accent:T.border}`, color:prodOverrides[i]||c.prod?T.accent:T.sub, background:prodOverrides[i]||c.prod?T.accentL:T.inputBg, cursor:"pointer", maxWidth:190, fontWeight:600 }}>
-                            <option value="">🔗 Asignar producto...</option>
-                            {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                          </select>
-                        )}
-                        <div style={{ fontSize:11, color:T.sub, marginTop:2, fontStyle:"italic", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.razon}</div>
+                    <tr key={i} style={{ background:i%2===0?T.white:T.bg, borderBottom:`1px solid ${T.border}` }}>
+                      <td style={{ padding:"12px 14px", maxWidth:200 }}>
+                        <div style={{ fontWeight:700, fontSize:13, color:T.text }}>{c.nombre}</div>
+                        <div style={{ fontSize:11, color:T.sub, marginTop:2, fontStyle:"italic" }}>{c.razon}</div>
                       </td>
                       <TD>
                         <span style={{ background:c.plataforma==="Meta"?"#eff6ff":"#fdf4ff", color:c.plataforma==="Meta"?"#2563eb":"#7c3aed", borderRadius:6, padding:"2px 8px", fontSize:12, fontWeight:700 }}>
                           {c.plataforma==="Meta"?"🔵 Meta":"🎵 TikTok"}
                         </span>
                       </TD>
-                      <td style={{ padding:"12px 14px", fontSize:12, color:T.sub, whiteSpace:"nowrap" }}>{c.periodo.slice(0,10)}</td>
+                      <td style={{ padding:"12px 14px", fontSize:12, color:T.sub }}>{c.periodo}</td>
                       <TD bold>{clp(c.gastado)}</TD>
                       <TD color={c.compras>0?T.text:T.sub}>{c.compras||"—"}</TD>
                       <td style={{ padding:"12px 14px" }}>
-                        <span style={{ fontWeight:800, fontSize:14, color:roasOk?T.green:c.roas>0?T.red:T.sub }}>
-                          {roasEfectivo>0 ? <>{x2(roasEfectivo)}{c.roas===0&&roasEfectivo>0&&<span style={{fontSize:9,color:T.sub}}> est.</span>}</> : "—"}
+                        <span style={{ fontWeight:800, fontSize:14, color:roasOk?T.green:c.roasEfectivo>0?T.red:T.sub }}>
+                          {c.roasEfectivo>0?<>{x2(c.roasEfectivo)}{c.roas===0&&c.roasEfectivo>0&&<span style={{fontSize:9,color:T.sub}}> est.</span>}</>:"—"}
                         </span>
                       </td>
                       <td style={{ padding:"12px 14px" }}>
-                        {c.beroas
-                          ? <span style={{ fontWeight:700, fontSize:13, color:T.accent }}>{x2(c.beroas)}</span>
-                          : <span style={{ fontSize:12, color:T.sub }}>—</span>}
+                        {c.beroas?<span style={{ fontWeight:700, color:T.accent }}>{x2(c.beroas)}</span>:<span style={{ color:T.sub }}>—</span>}
                       </td>
                       <TD color={c.cpaMax&&c.cpa>c.cpaMax?T.red:T.text}>{c.cpa>0?clp(c.cpa):"—"}</TD>
                       <TD color={T.green}>{c.cpaMax?clp(c.cpaMax):"—"}</TD>
@@ -1818,6 +1716,12 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
                       <td style={{ padding:"12px 14px" }}>
                         <div style={{ background:D.bg, color:D.color, borderRadius:8, padding:"5px 10px", fontSize:12, fontWeight:800, whiteSpace:"nowrap", display:"inline-block" }}>
                           {D.icon} {D.label}
+                        </div>
+                      </td>
+                      <td style={{ padding:"12px 14px" }}>
+                        <div style={{ display:"flex", gap:6 }}>
+                          <button onClick={()=>editar(origIdx)} style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.white, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>✏️</button>
+                          <button onClick={()=>eliminar(origIdx)} style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${T.redBg}`, background:T.redBg, color:T.red, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>🗑</button>
                         </div>
                       </td>
                     </tr>
@@ -1828,13 +1732,11 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
           </div>
         </Card>
 
-        {/* Nota educativa */}
         <Card style={{ background:T.accentL, border:`1px solid ${T.accent}33` }}>
           <div style={{ fontWeight:800, fontSize:13, color:T.accent, marginBottom:8 }}>📚 ¿Por qué no miramos solo el CPA?</div>
           <div style={{ fontSize:13, color:T.text, lineHeight:1.8 }}>
-            El CPA mide cuánto pagaste por cada compra en ads — pero no te dice si fuiste rentable. Una campaña con CPA de $18.000 puede ser <strong>excelente</strong> si tu producto tiene margen para absorberlo, o una campaña con CPA de $4.000 puede ser <strong>ruinosa</strong> si tu margen neto es de $3.000.<br/>
-            <br/>
-            Lo que importa: <strong>ROAS ≥ BEROAS</strong>. Si tu ROAS supera el break-even, estás ganando. Si no, estás financiando ventas con pérdida. Carga el costeo de tus productos para ver esto en tiempo real.
+            El CPA mide cuánto pagaste por cada compra en ads — pero no te dice si fuiste rentable. Una campaña con CPA de $18.000 puede ser <strong>excelente</strong> si tu producto tiene margen para absorberlo, o una campaña con CPA de $4.000 puede ser <strong>ruinosa</strong> si tu margen neto es de $3.000.<br/><br/>
+            Lo que importa: <strong>ROAS ≥ BEROAS</strong>. Si tu ROAS supera el break-even, estás ganando. Si no, estás financiando ventas con pérdida.
           </div>
         </Card>
 
