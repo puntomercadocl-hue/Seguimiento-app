@@ -1377,6 +1377,7 @@ function Campanas({ productos, cfg }) {
   const [campanas, setCampanas] = useState([]);
   const [plat, setPlat]         = useState("Todos");
   const [sort, setSort]         = useState("rentabilidad");
+  const [prodOverrides, setProdOverrides] = useState({}); // campañaIndex → productoId
 
   const handleMeta = (e) => {
     const file = e.target.files[0]; if (!file) return;
@@ -1512,14 +1513,26 @@ function Campanas({ productos, cfg }) {
   };
 
   // ── Enriquecer cada campaña con datos del catálogo ──
-  const enriquecidas = campanas.map(c => {
+  const enriquecidas = campanas.map((c, idx) => {
+    // Usar override manual si existe
+    const overrideProd = prodOverrides[idx] ? productos.find(p=>p.id===prodOverrides[idx]) : null;
     // Intentar coincidir campaña con producto del catálogo
-    const prod = productos.find(p => {
+    const prod = overrideProd || productos.find(p => {
       const np = (p.nombre||"").toUpperCase();
       const nc = c.nombre.toUpperCase();
-      return np.split(" ").filter(w=>w.length>3).some(w => nc.includes(w)) ||
+      // Match por palabras en común
+      const matchPalabras = np.split(" ").filter(w=>w.length>3).some(w => nc.includes(w)) ||
              nc.split(/[\s-]+/).filter(w=>w.length>3).some(w => np.includes(w));
-    });
+      if (matchPalabras) return true;
+      // Si la campaña es TikTok consolidada ("TikTok Ads") y solo hay 1 producto → asignar automáticamente
+      if (nc.includes("TIKTOK ADS") && productos.length === 1) return true;
+      return false;
+    }) || (
+      // Fallback: si no hay match por nombre pero es TikTok consolidado, usar el producto con más costeo cargado
+      c.nombre.toUpperCase().includes("TIKTOK ADS") && productos.length > 0
+        ? productos.find(p => p.costoUnitario && p.precioVenta) || null
+        : null
+    );
     const costeo = prod ? calcCosteo(prod, cfg) : null;
     const beroas  = costeo?.beroas  || null;
     const cpaMax  = costeo?.cpaMax  || null;
@@ -1732,7 +1745,16 @@ function Campanas({ productos, cfg }) {
                         <div style={{ fontWeight:700, fontSize:13, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
                           {c.nombre.replace(/^Ventas[-\s]+/i,"").replace(/-ABO.*$/i,"").trim()}
                         </div>
-                        {c.prod && <div style={{ fontSize:11, color:T.accent, marginTop:2 }}>📦 {c.prod.nombre}</div>}
+                        {c.prod
+                          ? <div style={{ fontSize:11, color:T.accent, marginTop:2 }}>📦 {c.prod.nombre}</div>
+                          : productos.length > 0 && (
+                            <select onChange={e => setProdOverrides(prev=>({...prev,[i]:e.target.value}))}
+                              style={{ marginTop:4, fontSize:11, padding:"2px 6px", borderRadius:6, border:`1px solid ${T.border}`, color:T.text, background:T.inputBg, cursor:"pointer", maxWidth:180 }}>
+                              <option value="">🔗 Asignar producto...</option>
+                              {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                            </select>
+                          )
+                        }
                         <div style={{ fontSize:11, color:T.sub, marginTop:2, fontStyle:"italic", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.razon}</div>
                       </td>
                       <TD>
