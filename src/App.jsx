@@ -1420,33 +1420,53 @@ function Campanas({ productos, cfg }) {
 
   const handleTikTok = (e) => {
     const file = e.target.files[0]; if (!file) return;
+    const isCSV = file.name.toLowerCase().endsWith(".csv");
     const reader = new FileReader();
+    const parseRows = (rows) => {
+      const mapped = rows
+        .filter(r => {
+          const n = String(r["Nombre de la cuenta"]||r["Campaign name"]||r["Ad Group Name"]||"");
+          return n && !n.startsWith("Total") && !n.startsWith("total");
+        })
+        .map(r => ({
+          plataforma : "TikTok",
+          nombre     : String(r["Nombre de la cuenta"]||r["Campaign name"]||r["Ad Group Name"]||"TikTok Ads"),
+          periodo    : r["Date"]||r["Fecha"]||"",
+          estado     : "active",
+          gastado    : parseFloat(r["Coste"]||r["Cost"]||r["Spend"]||0),
+          compras    : parseFloat(r["Conversiones"]||r["Conversions"]||r["Complete Payment"]||0),
+          roas       : parseFloat(r["ROAS"]||r["Purchase ROAS"]||0),
+          cpa        : parseFloat(r["Coste por conversión"]||r["Cost per conversion"]||r["Cost per Complete Payment"]||0),
+          ctr        : parseFloat(r["CTR (destino)"]||r["CTR"]||0)*100,
+          cpm        : parseFloat(r["CPM"]||r["Cost per 1,000 Impressions"]||0),
+          cpc        : parseFloat(r["CPC (destino)"]||r["CPC"]||0),
+          clics      : parseFloat(r["Clics (destino)"]||r["Clicks"]||0),
+        }));
+      setCampanas(prev => [...prev.filter(c=>c.plataforma!=="TikTok"), ...mapped]);
+      setPlat("TikTok");
+    };
     reader.onload = (ev) => {
       try {
-        const wb = window.XLSX.read(ev.target.result, { type:"array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = window.XLSX.utils.sheet_to_json(ws, { defval:"" });
-        const mapped = rows
-          .filter(r => r["Nombre de la cuenta"] && !String(r["Nombre de la cuenta"]).startsWith("Total"))
-          .map(r => ({
-            plataforma : "TikTok",
-            nombre     : String(r["Nombre de la cuenta"]||""),
-            periodo    : "",
-            estado     : "active",
-            gastado    : parseFloat(r["Coste"]||0),
-            compras    : parseFloat(r["Conversiones"]||0),
-            roas       : 0,
-            cpa        : parseFloat(r["Coste por conversión"]||0),
-            ctr        : parseFloat(r["CTR (destino)"]||0)*100,
-            cpm        : parseFloat(r["CPM"]||0),
-            cpc        : parseFloat(r["CPC (destino)"]||0),
-            clics      : parseFloat(r["Clics (destino)"]||0),
-          }));
-        setCampanas(prev => [...prev.filter(c=>c.plataforma!=="TikTok"), ...mapped]);
-        setPlat("TikTok");
-      } catch { alert("Error leyendo Excel de TikTok"); }
+        if (isCSV) {
+          const lines = ev.target.result.split("\n").filter(l=>l.trim());
+          const hdrs  = lines[0].split(",").map(h=>h.trim().replace(/^"|"$/g,""));
+          const rows  = lines.slice(1).map(line => {
+            const cols=[]; let cur="", inQ=false;
+            for(const ch of line){ if(ch==='"') inQ=!inQ; else if(ch===','&&!inQ){cols.push(cur.trim());cur="";}else cur+=ch; }
+            cols.push(cur.trim());
+            const r={}; hdrs.forEach((h,i)=>r[h]=cols[i]||""); return r;
+          }).filter(r=>Object.values(r).some(v=>v));
+          parseRows(rows);
+        } else {
+          const wb   = window.XLSX.read(ev.target.result, { type:"array" });
+          const ws   = wb.Sheets[wb.SheetNames[0]];
+          const rows = window.XLSX.utils.sheet_to_json(ws, { defval:"" });
+          parseRows(rows);
+        }
+      } catch(err) { alert("Error leyendo archivo de TikTok. Verifica que sea CSV o Excel."); }
     };
-    reader.readAsArrayBuffer(file);
+    if (isCSV) reader.readAsText(file, "utf-8");
+    else reader.readAsArrayBuffer(file);
   };
 
   // ── Enriquecer cada campaña con datos del catálogo ──
@@ -1547,7 +1567,7 @@ function Campanas({ productos, cfg }) {
 
   const dropZone = (label, icon, onChange, loaded) => (
     <label style={{ display:"flex", alignItems:"center", gap:12, border:`2px dashed ${loaded?T.green:T.border}`, borderRadius:12, padding:"16px 20px", cursor:"pointer", background:loaded?T.greenBg:T.inputBg }}>
-      <input type="file" style={{ display:"none" }} onChange={onChange} accept={label.includes("TikTok")?".xlsx,.xls":".csv"} />
+      <input type="file" style={{ display:"none" }} onChange={onChange} accept={"label.includes("TikTok")?".xlsx,.xls,.csv":".csv""} />
       <div style={{ fontSize:28 }}>{loaded?"✅":icon}</div>
       <div>
         <div style={{ fontWeight:700, fontSize:13, color:loaded?T.green:T.text }}>{loaded?"Cargado — click para reemplazar":label}</div>
@@ -1564,7 +1584,7 @@ function Campanas({ productos, cfg }) {
         <SectionTitle icon="📡" title="Importar Reportes de Ads" sub="Conecta Meta y TikTok para ver rentabilidad real por campaña" />
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom: campanas.length===0?14:0 }}>
           {dropZone("🔵 Meta Ads — CSV", "🔵", handleMeta, campanas.some(c=>c.plataforma==="Meta"))}
-          {dropZone("🎵 TikTok Ads — Excel", "🎵", handleTikTok, campanas.some(c=>c.plataforma==="TikTok"))}
+          {dropZone("🎵 TikTok Ads — CSV o Excel", "🎵", handleTikTok, campanas.some(c=>c.plataforma==="TikTok"))}
         </div>
         {campanas.length===0 && (
           <div style={{ background:T.accentL, borderRadius:10, padding:"12px 16px", fontSize:13, color:T.accent, fontWeight:600 }}>
