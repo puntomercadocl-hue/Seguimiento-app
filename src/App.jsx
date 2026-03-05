@@ -1485,9 +1485,14 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
           const nombre = str(r,"Campaign name","Nombre de la cuenta","Campaign Name");
           if (!byCamp[nombre]) byCamp[nombre] = {gastado:0,compras:0,clics:0,imps:0};
           byCamp[nombre].gastado += get(r,"Cost","Coste","Spend");
-          // IMPORTANTE: leer Conversions (col 10) NO "Cost per conversion" (col 11)
-          const convVal = r["Conversions"] !== undefined ? parseFloat(r["Conversions"])||0 :
-                          r["Conversiones"] !== undefined ? parseFloat(r["Conversiones"])||0 : 0;
+          // CRÍTICO: leer EXACTAMENTE "Conversions" no "Cost per conversion"
+          const rawConv = r["Conversions"];
+          const rawConvEs = r["Conversiones"];
+          const convVal = rawConv !== undefined && rawConv !== "" && rawConv !== "-"
+            ? parseFloat(rawConv)||0
+            : rawConvEs !== undefined && rawConvEs !== "" && rawConvEs !== "-"
+            ? parseFloat(rawConvEs)||0
+            : 0;
           byCamp[nombre].compras += convVal;
           byCamp[nombre].clics   += get(r,"Clicks (destination)","Clics (destino)","Clicks");
           byCamp[nombre].imps    += get(r,"Impressions","Impresiones");
@@ -1558,9 +1563,14 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
     const cpaMax  = costeo?.cpaMax  || null;
     const utilUnit= costeo?.utilUnitReal || null;
 
+    // Si TikTok no reporta ROAS pero tenemos CPA y precio del producto → estimarlo
+    const roasEfectivo = c.roas > 0
+      ? c.roas
+      : (c.cpa > 0 && prod?.precioVenta)
+        ? +((prod.precioVenta * (prod.tasaEnt||75)/100) / c.cpa).toFixed(2)
+        : 0;
+
     // ── Lógica de decisión basada en RENTABILIDAD, no solo CPA ──
-    // Principio: el ROAS vs BEROAS es lo que importa.
-    // CPA alto no es problema si el ROAS supera el break-even.
     let decision, razon, urgencia = 0;
 
     if (c.compras === 0 && c.gastado > 8000) {
@@ -1765,7 +1775,8 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
               <tbody>
                 {sorted.map((c,i)=>{
                   const D = DECISION[c.decision];
-                  const roasOk = c.beroas ? c.roas >= c.beroas : c.roas >= 3;
+                  const roasEfectivo = c.roas > 0 ? c.roas : (c.cpa > 0 && c.prod?.precioVenta) ? +((c.prod.precioVenta*(c.prod.tasaEnt||75)/100)/c.cpa).toFixed(2) : 0;
+                  const roasOk = c.beroas ? roasEfectivo >= c.beroas : roasEfectivo >= 3;
                   return (
                     <tr key={i} style={{ background: i%2===0 ? T.white : T.bg, borderBottom:`1px solid ${T.border}` }}>
                       <td style={{ padding:"12px 14px", maxWidth:220 }}>
@@ -1793,7 +1804,7 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
                       <TD color={c.compras>0?T.text:T.sub}>{c.compras||"—"}</TD>
                       <td style={{ padding:"12px 14px" }}>
                         <span style={{ fontWeight:800, fontSize:14, color:roasOk?T.green:c.roas>0?T.red:T.sub }}>
-                          {c.roas>0 ? x2(c.roas) : "—"}
+                          {roasEfectivo>0 ? <>{x2(roasEfectivo)}{c.roas===0&&roasEfectivo>0&&<span style={{fontSize:9,color:T.sub}}> est.</span>}</> : "—"}
                         </span>
                       </td>
                       <td style={{ padding:"12px 14px" }}>
