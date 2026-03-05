@@ -1,0 +1,1121 @@
+import { useState, useEffect, useMemo } from "react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, AreaChart, Area } from "recharts";
+
+// ─── Persistence ──────────────────────────────────────────────────────────────
+const SK = "drofitv3";
+const persist = (d) => { try { localStorage.setItem(SK, JSON.stringify(d)); } catch {} };
+const hydrate = () => { try { return JSON.parse(localStorage.getItem(SK)) || {}; } catch { return {}; } };
+
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const T = {
+  bg: "#f5f6fa", white: "#ffffff", accent: "#5b50f0", accentL: "#ede9ff", accentText: "#5b50f0",
+  green: "#10b981", greenBg: "#d1fae5", red: "#ef4444", redBg: "#fee2e2",
+  yellow: "#f59e0b", yellowBg: "#fef3c7", orange: "#f97316", orangeBg: "#ffedd5",
+  text: "#111827", sub: "#6b7280", border: "#e5e7eb", inputBg: "#f9fafb",
+  shadow: "0 1px 3px rgba(0,0,0,0.08)", shadowMd: "0 4px 12px rgba(0,0,0,0.08)",
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const clp = (n, dec = 0) => (n == null || isNaN(n) || !isFinite(n)) ? "—" : `$${(+n).toLocaleString("es-CL", { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
+const pct = (n) => (n == null || isNaN(n)) ? "—" : `${(+n * 100).toFixed(1)}%`;
+const x2 = (n) => (n == null || isNaN(n) || !isFinite(n)) ? "—" : `${(+n).toFixed(2)}x`;
+const num = (v, fb = 0) => { const n = parseFloat(v); return isNaN(n) ? fb : n; };
+const nz = (v) => num(v, 0);
+
+// ─── Costeo cálculo (fiel al Excel COSTEO_PRODUCTO) ──────────────────────────
+function calcCosteo(p, cfg) {
+  const pv   = nz(p.precioVenta);
+  const cu   = nz(p.costoUnitario);
+  const env  = nz(p.costoEnvio  || cfg.costoEnvio);
+  const tc   = nz(p.tasaConf    || cfg.tasaConf) / 100;   // Órdenes Confirmadas %
+  const te   = nz(p.tasaEnt     || cfg.tasaEnt)  / 100;   // Órdenes Entregadas %
+  const cpa  = nz(p.cpaEstimado || cfg.cpaEstimado || 5000); // CPA Estimado
+  const ped  = nz(p.pedidosDiarios || 1);
+  const p2da = nz(p.pct2daUnidad) / 100; // % pedidos con 2da unidad al 50%
+
+  // ── Fila 14: Órdenes Reales Entregadas = TC × TE
+  const realEnt = tc * te;
+
+  // ════════════════════════════════════════════════════
+  // BLOQUE 1 — Costeo Unitario (filas 15-27 del Excel)
+  // ════════════════════════════════════════════════════
+  const ingReales        = pv * realEnt;               // f15
+  const costosProdReales = cu * realEnt;               // f16
+  const costoEnvTotal    = env * tc;                   // f17  (envío × confirmados)
+  const costoAnuncios    = cpa;                        // f18
+  const utilUnitReal     = ingReales - costosProdReales - costoEnvTotal - costoAnuncios; // f19
+  const margenNeto       = ingReales > 0 ? utilUnitReal / ingReales : null; // f20
+
+  // f22 — Precio para quedar neto = (CU×realEnt + Envío×TC + CPA) / realEnt
+  // Excel exacto: =(B9*B14 + B10*B12 + B11) / B14
+  const precioNeto = realEnt > 0 ? (cu * realEnt + env * tc + cpa) / realEnt : null;
+
+  // f23 — CPA "Real" = CPA / realEnt
+  // Excel exacto: =B11/B14
+  const cpaRealUnit = realEnt > 0 ? cpa / realEnt : null;
+
+  // f24 — Costo por compra máximo aceptable
+  // Excel exacto: =B14*(B8-B9) - B12*B10  →  realEnt*(pv-cu) - tc*env
+  const cpaMax = realEnt * (pv - cu) - tc * env;
+
+  // BEROAS = Precio / CPA máximo
+  const beroas = cpaMax > 0 ? pv / cpaMax : null;
+
+  // f25-27 — Proyección diaria / mensual
+  const gananciaDiaria  = utilUnitReal * ped;
+  const gananciaMensual = gananciaDiaria * 30;
+
+  // ════════════════════════════════════════════════════
+  // BLOQUE 2 — Con 2ª Unidad al 50% OFF (filas 31-42)
+  // ════════════════════════════════════════════════════
+  // En el Excel el % de 2da unidad sube los ingresos y costos de producto
+  // proporcional a cuántos pedidos llevan la 2da unidad (p2da × realEnt de base)
+  let ing2=null, costosProd2=null, costoEnv2=null, util2=null;
+  let margen2=null, aumentoMargen=null, gan2diaria=null, gan2mensual=null;
+
+  if (p2da > 0) {
+    // f32: =(1-p2da)*ingReales + p2da*(ingReales + 0.5*ingReales)
+    // = ingReales * (1 + 0.5*p2da)
+    ing2 = (1 - p2da) * ingReales + p2da * (ingReales + 0.5 * ingReales);
+
+    // f33: =(1-p2da)*costosProd + p2da*(2*costosProd)
+    // = costosProd * (1 + p2da)
+    costosProd2 = (1 - p2da) * costosProdReales + p2da * (2 * costosProdReales);
+
+    costoEnv2 = costoEnvTotal;                             // f34: =B17
+    const costoTotal2 = costosProd2 + costoEnv2 + costoAnuncios;
+    util2         = ing2 - costoTotal2;                    // f36
+    margen2       = ing2 > 0 ? util2 / ing2 : null;       // f37
+    aumentoMargen = (margen2 != null && margenNeto != null && margenNeto !== 0)
+      ? margen2 / margenNeto - 1 : null;                  // f38: =B37/B20-1
+    gan2diaria  = ped * util2;                             // f41
+    gan2mensual = gan2diaria * 30;                         // f42
+  }
+
+  // ════════════════════════════════════════════════════
+  // BLOQUE 3 — Análisis Total Pedidos Reales (filas 44-58)
+  // Se alimenta con datos reales de Shopify (se pasan por parámetro)
+  // ════════════════════════════════════════════════════
+  // Se calcula en la UI al ingresar los datos reales
+
+  return {
+    // inputs derivados
+    tc, te, realEnt,
+    // Bloque 1
+    ingReales, costosProdReales, costoEnvTotal, costoAnuncios,
+    utilUnitReal, margenNeto,
+    precioNeto, cpaRealUnit, cpaMax, beroas,
+    gananciaDiaria, gananciaMensual,
+    // Bloque 2
+    ing2, costosProd2, costoEnv2, util2, margen2, aumentoMargen,
+    gan2diaria, gan2mensual,
+  };
+}
+
+// ─── Análisis Pedidos Reales (Bloque 3 del Excel, filas 44-58) ───────────────
+function calcPedidosReales(r, cfg, prod) {
+  // r = { totalPedidos, tcReal, teReal, costoEnvioReal, gastoAds }
+  const pv   = nz(prod?.precioVenta);
+  const cu   = nz(prod?.costoUnitario);
+  const env  = nz(r.costoEnvioReal || prod?.costoEnvio || cfg.costoEnvio);
+  const tc   = nz(r.tcReal)  / 100;   // % conf real Shopify
+  const te   = nz(r.teReal)  / 100;   // % entrega real Shopify
+  const pt   = nz(r.totalPedidos);
+  const ads  = nz(r.gastoAds);
+
+  const realEnt = tc * te;
+  const cpaReal = pt > 0 ? ads / pt : null;             // f49
+
+  const ingReales  = pv * realEnt * pt;                 // f53
+  const costosProd = cu * realEnt * pt;                 // f54
+  const costoEnv   = env * tc * pt;                     // f55
+  const utilReal   = ingReales - costosProd - costoEnv - ads; // f57
+  const margen     = ingReales > 0 ? utilReal / ingReales : null; // f58
+
+  return { cpaReal, realEnt, ingReales, costosProd, costoEnv, utilReal, margen };
+}
+
+// ─── Entry metrics ────────────────────────────────────────────────────────────
+function calcEntry(e, cfg, prod) {
+  const pv = nz(prod?.precioVenta), cu = nz(prod?.costoUnitario);
+  const env = nz(prod?.costoEnvio || cfg.costoEnvio);
+  const tc = nz(prod?.tasaConf || cfg.tasaConf) / 100;
+  const te = nz(prod?.tasaEnt || cfg.tasaEnt) / 100;
+  const ads = nz(e.gastoAds), pt = nz(e.pedidosTotales);
+  const units = nz(e.unidades), conf = nz(e.confirmados), ent = nz(e.entregados);
+  const ingTot = pv * units, ingReal = pv * ent;
+  const costosTot = cu * ent + env * conf + ads;
+  const utilidad = ingReal - costosTot;
+  const rent = ingReal > 0 ? utilidad / ingReal : null;
+  const cpaReal = ent > 0 ? ads / ent : null;
+  const cpaFalso = pt > 0 ? ads / pt : null;
+  const roas = ads > 0 ? ingReal / ads : null;
+  const ticket = ent > 0 ? pv : null;
+  const ingrR = pv * tc * te, costoR = cu * tc * te + env * tc;
+  const cpaMax = ingrR - costoR;
+  const beroas = cpaMax > 0 ? pv / cpaMax : null;
+  return { ingTot, ingReal, costosTot, utilidad, rent, cpaReal, cpaFalso, roas, beroas, ticket };
+}
+
+function semaforo(roas, beroas) {
+  if (roas == null || beroas == null) return null;
+  if (roas >= beroas) return "escalar";
+  if (roas >= beroas * 0.8) return "monitorear";
+  return "pausar";
+}
+
+// ─── UI ───────────────────────────────────────────────────────────────────────
+const Card = ({ children, style }) => (
+  <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, boxShadow: T.shadow, ...style }}>{children}</div>
+);
+const SectionTitle = ({ icon, title, sub }) => (
+  <div style={{ marginBottom: 16 }}>
+    <div style={{ fontWeight: 800, fontSize: 17, color: T.text }}>{icon} {title}</div>
+    {sub && <div style={{ fontSize: 13, color: T.sub, marginTop: 2 }}>{sub}</div>}
+  </div>
+);
+const Label = ({ children }) => <div style={{ fontSize: 12, fontWeight: 600, color: T.sub, marginBottom: 5 }}>{children}</div>;
+const Inp = ({ label, value, onChange, type = "number", placeholder = "0", prefix = "$", hint }) => (
+  <div>
+    {label && <Label>{label}</Label>}
+    <div style={{ position: "relative" }}>
+      {prefix && type === "number" && <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.sub, fontSize: 13 }}>{prefix}</span>}
+      <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        style={{ width: "100%", boxSizing: "border-box", background: T.inputBg, border: `1.5px solid ${T.border}`, borderRadius: 8, padding: type === "number" ? "9px 12px 9px 22px" : "9px 12px", color: T.text, fontSize: 14, fontFamily: "inherit", outline: "none" }}
+        onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+    </div>
+    {hint && <div style={{ fontSize: 11, color: T.sub, marginTop: 3 }}>{hint}</div>}
+  </div>
+);
+const InpPct = ({ label, value, onChange, placeholder = "70" }) => (
+  <div>
+    {label && <Label>{label}</Label>}
+    <div style={{ position: "relative" }}>
+      <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        style={{ width: "100%", boxSizing: "border-box", background: T.inputBg, border: `1.5px solid ${T.border}`, borderRadius: 8, padding: "9px 28px 9px 12px", color: T.text, fontSize: 14, fontFamily: "inherit", outline: "none" }}
+        onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+      <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: T.sub, fontSize: 13 }}>%</span>
+    </div>
+  </div>
+);
+const InpText = ({ label, value, onChange, placeholder }) => (
+  <div>
+    {label && <Label>{label}</Label>}
+    <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder || ""}
+      style={{ width: "100%", boxSizing: "border-box", background: T.inputBg, border: `1.5px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontSize: 14, fontFamily: "inherit", outline: "none" }}
+      onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+  </div>
+);
+const Btn = ({ children, onClick, variant = "primary", small }) => {
+  const s = { primary: { background: T.accent, color: "#fff", border: "none" }, ghost: { background: "none", color: T.sub, border: `1.5px solid ${T.border}` }, danger: { background: "none", color: T.red, border: `1.5px solid #fecaca` } };
+  return <button onClick={onClick} style={{ ...s[variant], borderRadius: 8, padding: small ? "6px 12px" : "10px 20px", fontWeight: 600, fontSize: small ? 12 : 14, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 6 }}>{children}</button>;
+};
+const Badge = ({ type }) => {
+  const m = { escalar: { txt: "✅ Escalar", bg: T.greenBg, col: T.green }, monitorear: { txt: "⚠️ Monitorear", bg: T.yellowBg, col: T.yellow }, pausar: { txt: "🔴 Pausar", bg: T.redBg, col: T.red } };
+  const s = m[type] || { txt: "—", bg: T.inputBg, col: T.sub };
+  return <span style={{ background: s.bg, color: s.col, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700 }}>{s.txt}</span>;
+};
+const Row = ({ label, value, color, bold, bg }) => (
+  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 14px", borderRadius: 8, background: bg || T.bg, marginBottom: 4 }}>
+    <span style={{ fontSize: 13, color: T.sub }}>{label}</span>
+    <span style={{ fontSize: 14, fontWeight: bold ? 800 : 600, color: color || T.text }}>{value}</span>
+  </div>
+);
+const TH = ({ children }) => <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}`, background: T.bg, whiteSpace: "nowrap" }}>{children}</th>;
+const TD = ({ children, color, bold }) => <td style={{ padding: "10px 14px", fontSize: 13, color: color || T.text, fontWeight: bold ? 700 : 400, borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>{children}</td>;
+const ttStyle = { background: T.white, border: `1px solid ${T.border}`, borderRadius: 10, color: T.text, fontSize: 12, boxShadow: T.shadowMd };
+
+// ─── Tab bar ──────────────────────────────────────────────────────────────────
+const TabBar = ({ tabs, active, onChange }) => (
+  <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, marginBottom: 20 }}>
+    {tabs.map(([id, label]) => (
+      <button key={id} onClick={() => onChange(id)} style={{ padding: "10px 18px", fontWeight: 600, fontSize: 14, color: active === id ? T.accent : T.sub, background: "none", border: "none", borderBottom: active === id ? `2px solid ${T.accent}` : "2px solid transparent", cursor: "pointer", fontFamily: "inherit" }}>{label}</button>
+    ))}
+  </div>
+);
+
+// ─── Defaults ─────────────────────────────────────────────────────────────────
+const GCFG = { costoCompra: 5000, costoEnvio: 7500, tasaConf: 75, tasaEnt: 75, cpaEstimado: 5000 };
+const EPROD = { nombre: "", proveedor: "", idDropi: "", precioVenta: "", costoUnitario: "", costoEnvio: "", tasaConf: "", tasaEnt: "", cpaEstimado: "", pedidosDiarios: "1", pct2daUnidad: "10", linkLanding: "", linkRef1: "", linkRef2: "", angulo: "", validadores: "", linkAnuncio1: "", linkAnuncio2: "" };
+const EENTRY = { fecha: "", productoId: "", gastoAds: "", diasCampana: "", cpm: "", cpc: "", ctr: "", ventasFacturadas: "", pedidosTotales: "", unidades: "", confirmados: "", entregados: "", devoluciones: "", plataforma: "Meta" };
+const CHECKLIST = ["¿Tu producto soluciona un problema o necesidad importante?","¿Tiene un efecto \"wow\" en los primeros 5 segundos?","¿Validaste que es un producto exitoso (biblioteca de anuncios)?","¿Utilizaste videos verticales (9:16) o cuadrado (1:1)?","¿Sacaste videos de la librería de Meta?","¿Tus videos tienen un gancho que detenga el scroll?","¿Usaste videos con voz en off?","¿El producto en el video es el mismo que en la landing?","¿Tu primera imagen del carrusel muestra el producto en uso?","¿Usaste elementos visuales como GIFs (mínimo 3)?","¿Profundizaste más en beneficios que en características?","¿El ángulo de venta del video es congruente con la landing?","¿La oferta de tu landing es REALMENTE atractiva?"];
+
+// ─── CALCULADORA / COSTEO ────────────────────────────────────────────────────
+function Calculadora({ cfg, setCfg, productos }) {
+  const [sel, setSel] = useState("");
+  const [prod, setProd] = useState({ ...EPROD });
+  // Bloque 3 — datos reales Shopify
+  const [real, setReal] = useState({ totalPedidos: "", tcReal: "", teReal: "", costoEnvioReal: "", gastoAds: "" });
+  const sp = (k, v) => setProd(p => ({ ...p, [k]: v }));
+  const sr = (k, v) => setReal(r => ({ ...r, [k]: v }));
+
+  useEffect(() => {
+    if (!sel) { setProd({ ...EPROD }); return; }
+    const p = productos.find(x => x.id === +sel);
+    if (p) setProd(p);
+  }, [sel]);
+
+  const c = calcCosteo(prod, cfg);
+  const hasData = prod.precioVenta && prod.costoUnitario;
+  const selProdObj = sel ? productos.find(x => x.id === +sel) : prod;
+  const hasReal = real.totalPedidos && (real.tcReal || real.teReal);
+  const r3 = hasReal ? calcPedidosReales(real, cfg, selProdObj) : null;
+
+  const divider = <div style={{ height: 1, background: T.border, margin: "8px 0" }} />;
+
+  // Shared row style
+  const RowB = ({ label, value, color, bold, highlight }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderRadius: 7, background: highlight ? (color === T.green ? T.greenBg : color === T.red ? T.redBg : T.accentL) : T.bg, marginBottom: 3 }}>
+      <span style={{ fontSize: 13, color: T.sub }}>{label}</span>
+      <span style={{ fontSize: 14, fontWeight: bold ? 800 : 600, color: color || T.text }}>{value}</span>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+
+      {/* ── Parámetros Globales ── */}
+      <Card>
+        <SectionTitle icon="⚙️" title="Parámetros Globales" sub="Valores por defecto — se aplican a todos los productos" />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14 }}>
+          <Inp label="Costo Envío Promedio" value={cfg.costoEnvio} onChange={v => setCfg(c => ({ ...c, costoEnvio: +v }))} />
+          <Inp label="CPA Estimado" value={cfg.cpaEstimado} onChange={v => setCfg(c => ({ ...c, cpaEstimado: +v }))} hint="Costo por compra esperado" />
+          <InpPct label="% Órdenes Confirmadas" value={cfg.tasaConf} onChange={v => setCfg(c => ({ ...c, tasaConf: +v }))} />
+          <InpPct label="% Órdenes Entregadas" value={cfg.tasaEnt} onChange={v => setCfg(c => ({ ...c, tasaEnt: +v }))} />
+          <div style={{ background: T.accentL, borderRadius: 10, padding: "10px 14px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <div style={{ fontSize: 11, color: T.sub, fontWeight: 700, textTransform: "uppercase" }}>% Real Entregados</div>
+            <div style={{ fontSize: 20, fontWeight: 900, color: T.accent }}>{pct(cfg.tasaConf / 100 * cfg.tasaEnt / 100)}</div>
+            <div style={{ fontSize: 11, color: T.sub }}>TC × TE</div>
+          </div>
+        </div>
+      </Card>
+
+      {/* ── INPUTS del producto ── */}
+      <Card>
+        <SectionTitle icon="📦" title="Datos del Producto" sub="Ingresa o carga un producto de tu catálogo" />
+        {productos.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <Label>Cargar desde Mis Productos</Label>
+            <select value={sel} onChange={e => setSel(e.target.value)} style={{ width: "100%", background: T.inputBg, border: `1.5px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontSize: 14, fontFamily: "inherit", outline: "none" }}>
+              <option value="">— Ingresar manualmente —</option>
+              {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+          </div>
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+          <Inp label="Precio a colocar (CLP)" value={prod.precioVenta} onChange={v => sp("precioVenta", v)} />
+          <Inp label="Costo Producto (CLP)" value={prod.costoUnitario} onChange={v => sp("costoUnitario", v)} />
+          <Inp label="Costo Envío Promedio (CLP)" value={prod.costoEnvio} onChange={v => sp("costoEnvio", v)} placeholder={cfg.costoEnvio} hint="Vacío = usa global" />
+          <Inp label="CPA Estimado (CLP)" value={prod.cpaEstimado} onChange={v => sp("cpaEstimado", v)} placeholder={cfg.cpaEstimado} hint="Vacío = usa global" />
+          <InpPct label="Órdenes Confirmadas (%)" value={prod.tasaConf} onChange={v => sp("tasaConf", v)} placeholder={cfg.tasaConf} />
+          <InpPct label="Órdenes Entregadas (%)" value={prod.tasaEnt} onChange={v => sp("tasaEnt", v)} placeholder={cfg.tasaEnt} />
+          <Inp label="Pedidos Diarios" value={prod.pedidosDiarios} onChange={v => sp("pedidosDiarios", v)} placeholder="1" />
+          <InpPct label="% con 2ª Unidad (50% OFF)" value={prod.pct2daUnidad} onChange={v => sp("pct2daUnidad", v)} placeholder="10" />
+        </div>
+      </Card>
+
+      {hasData && (<>
+
+        {/* ══════════════════════════════════════════════════════
+            BLOQUE 1 — Costeo Unitario (filas 14–27 del Excel)
+        ══════════════════════════════════════════════════════ */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+          <Card>
+            <div style={{ fontWeight: 800, fontSize: 15, color: T.text, marginBottom: 14 }}>
+              📊 Costeo Unitario
+            </div>
+
+            {/* inputs derivados clave */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+              {[
+                ["Órd. Confirmadas", pct(c.tc)],
+                ["Órd. Entregadas", pct(c.te)],
+                ["Órd. Reales Entregadas", pct(c.realEnt)],
+              ].map(([l, v]) => (
+                <div key={l} style={{ background: T.accentL, borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
+                  <div style={{ fontSize: 11, color: T.sub, fontWeight: 700 }}>{l}</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{v}</div>
+                </div>
+              ))}
+            </div>
+
+            <RowB label="Ingresos Reales" value={clp(c.ingReales)} color={T.green} />
+            <RowB label="Costos Producto Reales" value={clp(c.costosProdReales)} color={T.red} />
+            <RowB label="Costo Envío Total" value={clp(c.costoEnvTotal)} color={T.red} />
+            <RowB label="Costo Anuncios (CPA)" value={clp(c.costoAnuncios)} color={T.red} />
+            {divider}
+            <RowB label="Utilidad Unitaria Real" value={clp(c.utilUnitReal)} color={c.utilUnitReal >= 0 ? T.green : T.red} bold highlight />
+            <RowB label="Márgen Neto" value={pct(c.margenNeto)} color={c.margenNeto >= 0 ? T.green : T.red} bold />
+            {divider}
+            <RowB label={`Ganancia Diaria (${nz(prod.pedidosDiarios)||1} ped.)`} value={clp(c.gananciaDiaria)} color={c.gananciaDiaria >= 0 ? T.green : T.red} bold />
+            <RowB label="Ganancia Mensual (×30)" value={clp(c.gananciaMensual)} color={c.gananciaMensual >= 0 ? T.green : T.red} bold highlight />
+          </Card>
+
+          {/* Columna derecha — métricas clave */}
+          <div style={{ display: "grid", gap: 12, alignContent: "start" }}>
+            {/* Precio para quedar neto */}
+            <div style={{ background: T.accentL, border: `2px solid ${T.accent}`, borderRadius: 14, padding: "16px 20px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase", letterSpacing: "0.07em" }}>Precio para Quedar Neto</div>
+              <div style={{ fontSize: 30, fontWeight: 900, color: T.accent, letterSpacing: "-0.03em", marginTop: 4 }}>{clp(c.precioNeto)}</div>
+              <div style={{ fontSize: 11, color: T.sub, marginTop: 3 }}>Precio mínimo para no perder dinero</div>
+            </div>
+
+            {/* CPA Real */}
+            <div style={{ background: T.orangeBg, border: `1.5px solid #fed7aa`, borderRadius: 12, padding: "14px 18px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.orange, textTransform: "uppercase", letterSpacing: "0.07em" }}>CPA "Real" (por entrega real)</div>
+              <div style={{ fontSize: 26, fontWeight: 900, color: T.orange, marginTop: 4 }}>{clp(c.cpaRealUnit)}</div>
+              <div style={{ fontSize: 11, color: T.sub, marginTop: 2 }}>= CPA ÷ % Real Entregados ({pct(c.realEnt)})</div>
+            </div>
+
+            {/* CPA Máximo + BEROAS */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div style={{ background: c.cpaMax > 0 ? T.greenBg : T.redBg, borderRadius: 12, padding: "14px 16px", border: `1.5px solid ${c.cpaMax > 0 ? "#6ee7b7" : "#fca5a5"}` }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase" }}>Costo Compra Máx.</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: c.cpaMax > 0 ? T.green : T.red, marginTop: 4 }}>{clp(c.cpaMax)}</div>
+                <div style={{ fontSize: 11, color: T.sub, marginTop: 2 }}>Máximo aceptable en ads</div>
+              </div>
+              <div style={{ background: c.beroas ? T.accentL : T.bg, borderRadius: 12, padding: "14px 16px", border: `1.5px solid ${c.beroas ? T.accent : T.border}` }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase" }}>BEROAS</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: T.accent, marginTop: 4 }}>{x2(c.beroas)}</div>
+                <div style={{ fontSize: 11, color: T.sub, marginTop: 2 }}>Break Even ROAS</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ══════════════════════════════════════════════════════
+            BLOQUE 2 — Con 2ª Unidad al 50% OFF (filas 31-42)
+        ══════════════════════════════════════════════════════ */}
+        {nz(prod.pct2daUnidad) > 0 && c.ing2 !== null && (
+          <Card style={{ border: `1.5px solid ${T.accent}55` }}>
+            <div style={{ fontWeight: 800, fontSize: 15, color: T.accent, marginBottom: 14 }}>
+              🎁 Considerando {nz(prod.pct2daUnidad)}% de Segunda Unidad (50% OFF)
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+              <div>
+                <RowB label="Ingresos Reales (con 2ª unidad)" value={clp(c.ing2)} color={T.green} />
+                <RowB label="Costos Producto Reales" value={clp(c.costosProd2)} color={T.red} />
+                <RowB label="Costo Envío Total" value={clp(c.costoEnv2)} color={T.red} />
+                <RowB label="Costo Anuncios" value={clp(c.costoAnuncios)} color={T.red} />
+                {divider}
+                <RowB label="Utilidad" value={clp(c.util2)} color={c.util2 >= 0 ? T.green : T.red} bold highlight />
+                <RowB label="Márgen Neto" value={pct(c.margen2)} color={c.margen2 >= 0 ? T.green : T.red} bold />
+                {c.aumentoMargen !== null && (
+                  <RowB label="Aumento de Margen vs sin 2ª unidad" value={`+${pct(c.aumentoMargen)}`} color={T.green} bold />
+                )}
+              </div>
+              <div>
+                {divider}
+                <RowB label={`Ganancia Diaria (${nz(prod.pedidosDiarios)||1} ped.)`} value={clp(c.gan2diaria)} color={c.gan2diaria >= 0 ? T.green : T.red} bold />
+                <RowB label="Ganancia Mensual (×30)" value={clp(c.gan2mensual)} color={c.gan2mensual >= 0 ? T.green : T.red} bold highlight />
+                {c.gan2mensual > c.gananciaMensual && (
+                  <div style={{ marginTop: 10, background: T.greenBg, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: T.green, fontWeight: 700 }}>
+                    ↑ La 2ª unidad sube la ganancia mensual en {clp(c.gan2mensual - c.gananciaMensual)} vs sin upsell
+                  </div>
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* ══════════════════════════════════════════════════════
+            BLOQUE 3 — Análisis con Pedidos Reales de Shopify (filas 44-58)
+        ══════════════════════════════════════════════════════ */}
+        <Card style={{ border: `1.5px solid ${T.yellowBg}` }}>
+          <div style={{ fontWeight: 800, fontSize: 15, color: T.text, marginBottom: 4 }}>
+            🛍️ Análisis Total con Pedidos Reales (Shopify)
+          </div>
+          <div style={{ fontSize: 13, color: T.sub, marginBottom: 16 }}>
+            Ingresa los datos reales de tu campaña para ver la rentabilidad real
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 16 }}>
+            <Inp label="Total Pedidos (Shopify)" value={real.totalPedidos} onChange={v => sr("totalPedidos", v)} placeholder="0" />
+            <Inp label="Gasto en Anuncios (CLP)" value={real.gastoAds} onChange={v => sr("gastoAds", v)} placeholder="0" />
+            <Inp label="Costo Envío Real (CLP)" value={real.costoEnvioReal} onChange={v => sr("costoEnvioReal", v)} placeholder={cfg.costoEnvio} hint="Vacío = usa global" />
+            <InpPct label="Órdenes Confirmadas (%)" value={real.tcReal} onChange={v => sr("tcReal", v)} placeholder={nz(prod.tasaConf || cfg.tasaConf)} />
+            <InpPct label="Órdenes Entregadas (%)" value={real.teReal} onChange={v => sr("teReal", v)} placeholder={nz(prod.tasaEnt || cfg.tasaEnt)} />
+          </div>
+
+          {r3 ? (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+              <div>
+                <RowB label="Órd. Reales Entregadas (%)" value={pct(r3.realEnt)} />
+                <RowB label="CPA (costo por compra real)" value={clp(r3.cpaReal)} color={T.orange} />
+                <RowB label="Ingresos Reales" value={clp(r3.ingReales)} color={T.green} />
+                <RowB label="Costos Producto Reales" value={clp(r3.costosProd)} color={T.red} />
+                <RowB label="Costo Envío Total" value={clp(r3.costoEnv)} color={T.red} />
+                <RowB label="Costo Anuncios" value={clp(nz(real.gastoAds))} color={T.red} />
+              </div>
+              <div>
+                {divider}
+                <RowB label="Utilidad Real" value={clp(r3.utilReal)} color={r3.utilReal >= 0 ? T.green : T.red} bold highlight />
+                <RowB label="Márgen Neto Real" value={pct(r3.margen)} color={r3.margen >= 0 ? T.green : T.red} bold />
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.sub, marginBottom: 8 }}>Decisión basada en datos reales:</div>
+                  {r3.utilReal > 0
+                    ? <div style={{ background: T.greenBg, borderRadius: 8, padding: "10px 14px", color: T.green, fontWeight: 700, fontSize: 14 }}>✅ Rentable — Considera escalar</div>
+                    : r3.utilReal > -30000
+                    ? <div style={{ background: T.yellowBg, borderRadius: 8, padding: "10px 14px", color: T.yellow, fontWeight: 700, fontSize: 14 }}>⚠️ Pérdida acotada — Ajusta antes de escalar</div>
+                    : <div style={{ background: T.redBg, borderRadius: 8, padding: "10px 14px", color: T.red, fontWeight: 700, fontSize: 14 }}>🔴 En pérdida — Pausa y revisa producto/creativos</div>
+                  }
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ background: T.bg, borderRadius: 8, padding: "14px 16px", fontSize: 13, color: T.sub, textAlign: "center" }}>
+              Ingresa los datos reales de tu campaña para ver el análisis
+            </div>
+          )}
+        </Card>
+
+        {/* Fórmulas */}
+        <Card style={{ background: T.bg }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 10 }}>📐 Fórmulas del Costeo</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, color: T.sub, lineHeight: 1.8 }}>
+            {[
+              ["Órd. Reales Entregadas","TC × TE"],
+              ["Ingresos Reales","Precio × (TC × TE)"],
+              ["Costos Prod. Reales","Costo Unit. × (TC × TE)"],
+              ["Costo Envío Total","Envío × TC"],
+              ["Utilidad Unitaria","Ing.Reales − CostoProd − CostoEnv − CPA"],
+              ["Márgen Neto","Utilidad / Ingresos Reales"],
+              ["Precio para quedar neto","(CostoProd + Envío×TC) / (TC×TE)"],
+              ["CPA Real por entrega","CPA Estimado / (TC × TE)"],
+              ["Costo Compra Máx.","Ing.Reales − CostoProd − CostoEnv"],
+              ["BEROAS","Precio / Costo Compra Máximo"],
+            ].map(([l, v]) => (
+              <div key={l}><strong style={{ color: T.text }}>{l}:</strong> {v}</div>
+            ))}
+          </div>
+        </Card>
+
+      </>)}
+    </div>
+  );
+}
+
+// ─── MIS PRODUCTOS ────────────────────────────────────────────────────────────
+function MisProductos({ productos, setProductos, cfg }) {
+  const [form, setForm] = useState({ ...EPROD });
+  const [editId, setEditId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [activeTab, setActiveTab] = useState("basico");
+  const s = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const save = () => {
+    if (!form.nombre.trim()) return;
+    if (editId) { setProductos(ps => ps.map(p => p.id === editId ? { ...form, id: editId } : p)); setEditId(null); }
+    else setProductos(ps => [...ps, { ...form, id: Date.now() }]);
+    setForm({ ...EPROD }); setShowForm(false); setActiveTab("basico");
+  };
+
+  const edit = (p) => { setForm(p); setEditId(p.id); setShowForm(true); setActiveTab("basico"); };
+  const del = (id) => setProductos(ps => ps.filter(p => p.id !== id));
+
+  const c = calcCosteo(form, cfg);
+
+  return (
+    <div style={{ display: "grid", gap: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 20, color: T.text }}>Mis Productos</div>
+          <div style={{ fontSize: 13, color: T.sub, marginTop: 2 }}>Catálogo completo con costeo, antecedentes y métricas por producto</div>
+        </div>
+        <Btn onClick={() => { setShowForm(true); setEditId(null); setForm({ ...EPROD }); setActiveTab("basico"); }}>+ Nuevo Producto</Btn>
+      </div>
+
+      {showForm && (
+        <Card style={{ border: `1.5px solid ${T.accent}` }}>
+          <div style={{ fontWeight: 700, fontSize: 16, color: T.text, marginBottom: 14 }}>{editId ? "✏️ Editar Producto" : "➕ Nuevo Producto"}</div>
+          <TabBar tabs={[["basico","💰 Costeo"],["antecedentes","📋 Antecedentes"],["anuncios","📣 Anuncios"]]} active={activeTab} onChange={setActiveTab} />
+
+          {activeTab === "basico" && (
+            <div>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <InpText label="Nombre del producto *" value={form.nombre} onChange={v => s("nombre", v)} placeholder="Ej: Cepillo Alisador" />
+                <InpText label="Proveedor" value={form.proveedor} onChange={v => s("proveedor", v)} placeholder="Importadora..." />
+                <InpText label="ID Dropi" value={form.idDropi} onChange={v => s("idDropi", v)} placeholder="48988" />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 12 }}>
+                <Inp label="Precio de Venta (CLP)" value={form.precioVenta} onChange={v => s("precioVenta", v)} />
+                <Inp label="Costo Producto (CLP)" value={form.costoUnitario} onChange={v => s("costoUnitario", v)} />
+                <Inp label="Costo Envío (CLP)" value={form.costoEnvio} onChange={v => s("costoEnvio", v)} placeholder={cfg.costoEnvio} />
+                <Inp label="CPA Estimado (CLP)" value={form.cpaEstimado} onChange={v => s("cpaEstimado", v)} placeholder={cfg.cpaEstimado} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 12 }}>
+                <InpPct label="% Confirmación" value={form.tasaConf} onChange={v => s("tasaConf", v)} placeholder={cfg.tasaConf} />
+                <InpPct label="% Entrega" value={form.tasaEnt} onChange={v => s("tasaEnt", v)} placeholder={cfg.tasaEnt} />
+                <Inp label="Pedidos Diarios" value={form.pedidosDiarios} onChange={v => s("pedidosDiarios", v)} placeholder="1" />
+                <InpPct label="% 2ª Unidad (50% OFF)" value={form.pct2daUnidad} onChange={v => s("pct2daUnidad", v)} placeholder="10" />
+              </div>
+              {form.precioVenta && form.costoUnitario && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, background: T.accentL, borderRadius: 10, padding: "12px 14px" }}>
+                  {[["Precio Mínimo", clp(c.precioNeto), T.accent], ["BEROAS", x2(c.beroas), T.accent], ["CPA Máximo", clp(c.cpaMax), c.cpaMax > 0 ? T.green : T.red], ["Utilidad Unitaria", clp(c.utilUnitReal), c.utilUnitReal >= 0 ? T.green : T.red]].map(([l, v, col]) => (
+                    <div key={l}><div style={{ fontSize: 11, color: T.sub, fontWeight: 700, textTransform: "uppercase" }}>{l}</div><div style={{ fontSize: 18, fontWeight: 900, color: col }}>{v}</div></div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "antecedentes" && (
+            <div style={{ display: "grid", gap: 12 }}>
+              <InpText label="Link de la Landing" value={form.linkLanding} onChange={v => s("linkLanding", v)} placeholder="https://..." />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <InpText label="Tienda de Referencia 1" value={form.linkRef1} onChange={v => s("linkRef1", v)} placeholder="https://..." />
+                <InpText label="Tienda de Referencia 2" value={form.linkRef2} onChange={v => s("linkRef2", v)} placeholder="https://..." />
+              </div>
+              <div>
+                <Label>Ángulo de Venta (Problema que soluciona)</Label>
+                <textarea value={form.angulo} onChange={e => s("angulo", e.target.value)} placeholder="Ej: Ahorra tiempo al momento de arreglarte el cabello"
+                  style={{ width: "100%", boxSizing: "border-box", background: T.inputBg, border: `1.5px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontSize: 14, fontFamily: "inherit", outline: "none", minHeight: 70, resize: "vertical" }}
+                  onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+              </div>
+              <div>
+                <Label>Validadores (¿Qué viste en la biblioteca de anuncios?)</Label>
+                <textarea value={form.validadores} onChange={e => s("validadores", e.target.value)} placeholder="Ej: Una tienda en Argentina lo vende exclusivamente con +20 anuncios activos..."
+                  style={{ width: "100%", boxSizing: "border-box", background: T.inputBg, border: `1.5px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontSize: 14, fontFamily: "inherit", outline: "none", minHeight: 70, resize: "vertical" }}
+                  onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+              </div>
+            </div>
+          )}
+
+          {activeTab === "anuncios" && (
+            <div style={{ display: "grid", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <InpText label="Link Anuncio 1" value={form.linkAnuncio1} onChange={v => s("linkAnuncio1", v)} placeholder="https://drive.google.com/..." />
+                <InpText label="Link Anuncio 2" value={form.linkAnuncio2} onChange={v => s("linkAnuncio2", v)} placeholder="https://drive.google.com/..." />
+              </div>
+              <div style={{ background: T.bg, borderRadius: 10, padding: 14, fontSize: 12, color: T.sub }}>
+                💡 Sube tus videos de anuncios a Google Drive y comparte el link aquí para tenerlos organizados por producto.
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 10, marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
+            <Btn onClick={save}>💾 Guardar Producto</Btn>
+            <Btn variant="ghost" onClick={() => { setShowForm(false); setEditId(null); }}>Cancelar</Btn>
+          </div>
+        </Card>
+      )}
+
+      {productos.length === 0 && !showForm && (
+        <Card style={{ textAlign: "center", padding: 48 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📦</div>
+          <div style={{ color: T.sub }}>Aún no tienes productos. Crea el primero para comenzar.</div>
+        </Card>
+      )}
+
+      {productos.length > 0 && (
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr><TH>Producto</TH><TH>Proveedor</TH><TH>Precio</TH><TH>Costo</TH><TH>CPA Est.</TH><TH>TC/TE</TH><TH>Precio Mín.</TH><TH>BEROAS</TH><TH>Utilidad Unit.</TH><TH>Ganancia Mensual</TH><TH></TH></tr></thead>
+              <tbody>
+                {productos.map((p, i) => {
+                  const c = calcCosteo(p, cfg);
+                  return (
+                    <tr key={p.id} style={{ background: i % 2 === 0 ? T.white : T.bg }}>
+                      <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+                        <div style={{ fontWeight: 700, color: T.text, fontSize: 13 }}>{p.nombre}</div>
+                        {p.linkLanding && <a href={p.linkLanding} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: T.accent }}>🔗 Landing</a>}
+                      </td>
+                      <TD>{p.proveedor || "—"}</TD>
+                      <TD>{clp(nz(p.precioVenta))}</TD>
+                      <TD>{clp(nz(p.costoUnitario))}</TD>
+                      <TD>{clp(nz(p.cpaEstimado || cfg.cpaEstimado))}</TD>
+                      <TD>{nz(p.tasaConf || cfg.tasaConf)}% / {nz(p.tasaEnt || cfg.tasaEnt)}%</TD>
+                      <TD color={T.accent}>{clp(c.precioNeto)}</TD>
+                      <TD color={T.accent} bold>{x2(c.beroas)}</TD>
+                      <TD color={c.utilUnitReal >= 0 ? T.green : T.red} bold>{clp(c.utilUnitReal)}</TD>
+                      <TD color={c.gananciaMensual >= 0 ? T.green : T.red} bold>{clp(c.gananciaMensual)}</TD>
+                      <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <Btn small variant="ghost" onClick={() => edit(p)}>✏️</Btn>
+                          <Btn small variant="danger" onClick={() => del(p.id)}>🗑️</Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── REGISTRO ────────────────────────────────────────────────────────────────
+function Registro({ entries, setEntries, productos, cfg }) {
+  const [form, setForm] = useState({ ...EENTRY, fecha: new Date().toISOString().slice(0, 10) });
+  const [checklist, setChecklist] = useState({});
+  const [editIdx, setEditIdx] = useState(null);
+  const [tab, setTab] = useState("metricas");
+  const s = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const selProd = productos.find(p => p.id === +form.productoId);
+
+  const save = () => {
+    if (!form.fecha) return;
+    const entry = { ...form, checklist, id: Date.now() };
+    if (editIdx !== null) { setEntries(e => e.map((x, i) => i === editIdx ? entry : x)); setEditIdx(null); }
+    else setEntries(e => [...e, entry]);
+    setForm({ ...EENTRY, fecha: new Date().toISOString().slice(0, 10) });
+    setChecklist({});
+  };
+
+  // Métricas calculadas
+  const cpaCalculado = nz(form.ventasFacturadas) > 0 && nz(form.pedidosTotales) > 0 ? nz(form.gastoAds) / nz(form.pedidosTotales) : null;
+  const m = selProd ? calcEntry(form, cfg, selProd) : null;
+  const dec = m ? semaforo(m.roas, m.beroas) : null;
+  const checkPassed = Object.values(checklist).filter(v => v === "si").length;
+  const checkTotal = CHECKLIST.length;
+
+  return (
+    <div style={{ display: "grid", gap: 18 }}>
+      <Card style={{ border: editIdx !== null ? `1.5px solid ${T.accent}` : `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 18, color: T.text }}>{editIdx !== null ? "✏️ Editar Testeo" : "➕ Registrar Testeo"}</div>
+            <div style={{ fontSize: 13, color: T.sub }}>Registra las métricas de tu campaña y evalúa si continuar o pausar</div>
+          </div>
+          <Btn onClick={save}>💾 {editIdx !== null ? "Actualizar" : "Guardar"}</Btn>
+        </div>
+
+        {/* Fecha + Producto */}
+        <div style={{ display: "grid", gridTemplateColumns: "180px 1fr 140px", gap: 14, marginBottom: 16 }}>
+          <div>
+            <Label>📅 Fecha</Label>
+            <input type="date" value={form.fecha} onChange={e => s("fecha", e.target.value)}
+              style={{ width: "100%", boxSizing: "border-box", background: T.inputBg, border: `1.5px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontSize: 14, fontFamily: "inherit", outline: "none" }} />
+          </div>
+          <div>
+            <Label>📦 Producto</Label>
+            <select value={form.productoId} onChange={e => s("productoId", e.target.value)}
+              style={{ width: "100%", background: T.inputBg, border: `1.5px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontSize: 14, fontFamily: "inherit", outline: "none" }}>
+              <option value="">— Selecciona un producto —</option>
+              {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <Label>Plataforma</Label>
+            <select value={form.plataforma} onChange={e => s("plataforma", e.target.value)}
+              style={{ width: "100%", background: T.inputBg, border: `1.5px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontSize: 14, fontFamily: "inherit", outline: "none" }}>
+              {["Meta","Google","TikTok","Otra"].map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {selProd && (
+          <div style={{ background: T.accentL, borderRadius: 8, padding: "8px 14px", marginBottom: 14, display: "flex", gap: 20, flexWrap: "wrap", fontSize: 12 }}>
+            <span><strong style={{ color: T.accent }}>Precio:</strong> {clp(nz(selProd.precioVenta))}</span>
+            <span><strong style={{ color: T.accent }}>Costo:</strong> {clp(nz(selProd.costoUnitario))}</span>
+            <span><strong style={{ color: T.accent }}>TC/TE:</strong> {nz(selProd.tasaConf || cfg.tasaConf)}%/{nz(selProd.tasaEnt || cfg.tasaEnt)}%</span>
+            {selProd.linkLanding && <a href={selProd.linkLanding} target="_blank" rel="noreferrer" style={{ color: T.accent }}>🔗 Ver landing</a>}
+          </div>
+        )}
+
+        <TabBar tabs={[["metricas","📊 Métricas Ads"],["pedidos","📦 Pedidos"],["checklist","✅ Checklist"]]} active={tab} onChange={setTab} />
+
+        {tab === "metricas" && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+            <Inp label="Gasto Total en Ads (CLP)" value={form.gastoAds} onChange={v => s("gastoAds", v)} />
+            <Inp label="Días de campaña activa" value={form.diasCampana} onChange={v => s("diasCampana", v)} placeholder="1" />
+            <Inp label="CPM (Costo por mil impr.)" value={form.cpm} onChange={v => s("cpm", v)} />
+            <Inp label="CPC (Costo por clic)" value={form.cpc} onChange={v => s("cpc", v)} />
+            <InpText label="CTR (Click Through Rate)" value={form.ctr} onChange={v => s("ctr", v)} placeholder="1,65%" />
+            <Inp label="Ventas Facturadas (CLP)" value={form.ventasFacturadas} onChange={v => s("ventasFacturadas", v)} />
+            {cpaCalculado !== null && (
+              <div style={{ background: T.accentL, borderRadius: 8, padding: "9px 14px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div style={{ fontSize: 11, color: T.sub, fontWeight: 700 }}>CPA Calculado</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: T.accent }}>{clp(cpaCalculado)}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "pedidos" && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+            <Inp label="Pedidos Totales" value={form.pedidosTotales} onChange={v => s("pedidosTotales", v)} placeholder="0" />
+            <Inp label="Unidades Vendidas" value={form.unidades} onChange={v => s("unidades", v)} placeholder="0" />
+            <Inp label="Confirmados" value={form.confirmados} onChange={v => s("confirmados", v)} placeholder="0" />
+            <Inp label="Entregados" value={form.entregados} onChange={v => s("entregados", v)} placeholder="0" />
+            <Inp label="Devoluciones" value={form.devoluciones} onChange={v => s("devoluciones", v)} placeholder="0" />
+            {m && (
+              <div style={{ gridColumn: "1/-1", display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, background: T.bg, borderRadius: 10, padding: 14 }}>
+                {[["Ingresos Reales", clp(m.ingReal), T.green], ["Costos Totales", clp(m.costosTot), T.red], ["Utilidad", clp(m.utilidad), m.utilidad >= 0 ? T.green : T.red], ["ROAS Real", x2(m.roas), T.accent], ["BEROAS", x2(m.beroas), T.sub]].map(([l, v, c]) => (
+                  <div key={l}><div style={{ fontSize: 11, color: T.sub, fontWeight: 700, textTransform: "uppercase" }}>{l}</div><div style={{ fontSize: 17, fontWeight: 800, color: c }}>{v}</div></div>
+                ))}
+              </div>
+            )}
+            {dec && <div style={{ gridColumn: "1/-1" }}><Badge type={dec} /></div>}
+          </div>
+        )}
+
+        {tab === "checklist" && (
+          <div>
+            <div style={{ fontSize: 13, color: T.sub, marginBottom: 14 }}>
+              Checklist de calidad del testeo — <strong style={{ color: T.accent }}>{checkPassed}/{checkTotal} criterios cumplidos</strong>
+              {checkPassed < 8 && checkTotal > 0 && <span style={{ color: T.red, marginLeft: 8 }}>⚠️ Considera mejorar antes de escalar</span>}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {CHECKLIST.map((q, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: checklist[i] === "si" ? T.greenBg : checklist[i] === "no" ? T.redBg : T.bg, borderRadius: 8, padding: "10px 12px", cursor: "pointer" }}
+                  onClick={() => setChecklist(c => ({ ...c, [i]: c[i] === "si" ? "no" : c[i] === "no" ? undefined : "si" }))}>
+                  <div style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${checklist[i] === "si" ? T.green : checklist[i] === "no" ? T.red : T.border}`, background: checklist[i] === "si" ? T.green : checklist[i] === "no" ? T.red : T.white, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>
+                    {checklist[i] === "si" ? "✓" : checklist[i] === "no" ? "✗" : ""}
+                  </div>
+                  <span style={{ fontSize: 12, color: T.text, lineHeight: 1.4 }}>{q}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* Tabla registros */}
+      {entries.length > 0 && (
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "14px 20px", fontWeight: 700, fontSize: 15, color: T.text, borderBottom: `1px solid ${T.border}` }}>📋 Historial de Testeos ({entries.length})</div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr><TH>Fecha</TH><TH>Producto</TH><TH>Plataforma</TH><TH>Ads</TH><TH>Días</TH><TH>CPM</TH><TH>CPC</TH><TH>CTR</TH><TH>Pedidos</TH><TH>Entregados</TH><TH>Ing. Reales</TH><TH>Utilidad</TH><TH>ROAS</TH><TH>Decisión</TH><TH>✅</TH><TH></TH></tr></thead>
+              <tbody>
+                {[...entries].reverse().map((e, ri) => {
+                  const idx = entries.length - 1 - ri;
+                  const prod = productos.find(p => p.id === +e.productoId);
+                  const m = calcEntry(e, cfg, prod);
+                  const dec = semaforo(m.roas, m.beroas);
+                  const cpassed = Object.values(e.checklist || {}).filter(v => v === "si").length;
+                  return (
+                    <tr key={e.id || idx} style={{ background: ri % 2 === 0 ? T.white : T.bg }}>
+                      <TD>{e.fecha}</TD>
+                      <TD bold>{prod?.nombre || "—"}</TD>
+                      <TD>{e.plataforma || "—"}</TD>
+                      <TD>{clp(nz(e.gastoAds))}</TD>
+                      <TD>{e.diasCampana || "—"}</TD>
+                      <TD>{e.cpm || "—"}</TD>
+                      <TD>{e.cpc || "—"}</TD>
+                      <TD>{e.ctr || "—"}</TD>
+                      <TD>{e.pedidosTotales || 0}</TD>
+                      <TD>{e.entregados || 0}</TD>
+                      <TD color={T.green} bold>{clp(m.ingReal)}</TD>
+                      <TD color={m.utilidad >= 0 ? T.green : T.red} bold>{clp(m.utilidad)}</TD>
+                      <TD color={T.accent}>{x2(m.roas)}</TD>
+                      <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>{dec ? <Badge type={dec} /> : "—"}</td>
+                      <TD color={cpassed >= 10 ? T.green : cpassed >= 7 ? T.yellow : T.red}>{cpassed > 0 ? `${cpassed}/${checkTotal}` : "—"}</TD>
+                      <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <Btn small variant="ghost" onClick={() => { setForm(entries[idx]); setChecklist(entries[idx].checklist || {}); setEditIdx(idx); }}>✏️</Btn>
+                          <Btn small variant="danger" onClick={() => setEntries(e => e.filter((_, j) => j !== idx))}>🗑️</Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function Dashboard({ entries, productos, cfg }) {
+  const [tab, setTab] = useState("general");
+  const [prodFil, setProdFil] = useState("todos");
+
+  const filtered = useMemo(() => prodFil === "todos" ? entries : entries.filter(e => String(e.productoId) === String(prodFil)), [entries, prodFil]);
+  const computed = useMemo(() => filtered.map(e => { const p = productos.find(x => x.id === +e.productoId); return { ...e, ...calcEntry(e, cfg, p), prodNombre: p?.nombre || "Sin nombre" }; }), [filtered, productos, cfg]);
+
+  const tot = useMemo(() => {
+    const t = { pedidos: 0, conf: 0, ent: 0, ingReal: 0, costos: 0, ads: 0, util: 0, rent: null, cpa: null, roas: null };
+    computed.forEach(e => { t.pedidos += nz(e.pedidosTotales); t.conf += nz(e.confirmados); t.ent += nz(e.entregados); t.ingReal += e.ingReal; t.costos += e.costosTot; t.ads += nz(e.gastoAds); });
+    t.util = t.ingReal - t.costos; t.rent = t.ingReal > 0 ? t.util / t.ingReal : null;
+    t.cpa = t.ent > 0 ? t.ads / t.ent : null; t.roas = t.ads > 0 ? t.ingReal / t.ads : null;
+    return t;
+  }, [computed]);
+
+  const chartData = useMemo(() => {
+    const bd = {};
+    computed.forEach(e => {
+      if (!e.fecha) return;
+      if (!bd[e.fecha]) bd[e.fecha] = { fecha: e.fecha, pedidos: 0, ingReal: 0, util: 0, ads: 0 };
+      bd[e.fecha].pedidos += nz(e.pedidosTotales); bd[e.fecha].ingReal += e.ingReal;
+      bd[e.fecha].util += e.utilidad; bd[e.fecha].ads += nz(e.gastoAds);
+    });
+    return Object.values(bd).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  }, [computed]);
+
+  const byProd = useMemo(() => {
+    const mp = {};
+    computed.forEach(e => {
+      if (!mp[e.productoId]) mp[e.productoId] = { nombre: e.prodNombre, util: 0, ing: 0, ads: 0, ent: 0, ped: 0, conf: 0 };
+      mp[e.productoId].util += e.utilidad; mp[e.productoId].ing += e.ingReal;
+      mp[e.productoId].ads += nz(e.gastoAds); mp[e.productoId].ent += nz(e.entregados);
+      mp[e.productoId].ped += nz(e.pedidosTotales); mp[e.productoId].conf += nz(e.confirmados);
+    });
+    return Object.values(mp);
+  }, [computed]);
+
+  const decGlobal = tot.util > 0 ? "escalar" : tot.util > -30000 ? "monitorear" : "pausar";
+
+  if (entries.length === 0) return <Card style={{ textAlign: "center", padding: 60 }}><div style={{ fontSize: 40, marginBottom: 12 }}>📊</div><div style={{ color: T.sub }}>Aún no hay registros. Agrega tu primer testeo.</div></Card>;
+
+  const allProds = [{ id: "todos", nombre: "Todos" }, ...productos];
+
+  return (
+    <div style={{ display: "grid", gap: 18 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {allProds.map(p => (
+          <button key={p.id} onClick={() => setProdFil(String(p.id))} style={{ padding: "7px 14px", borderRadius: 8, border: `1.5px solid ${prodFil === String(p.id) ? T.accent : T.border}`, background: prodFil === String(p.id) ? T.accentL : T.white, color: prodFil === String(p.id) ? T.accent : T.sub, fontWeight: 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+            {p.nombre}
+          </button>
+        ))}
+        <div style={{ marginLeft: "auto" }}><Badge type={decGlobal} /></div>
+      </div>
+
+      <TabBar tabs={[["general","Vista General"],["producto","Por Producto"]]} active={tab} onChange={setTab} />
+
+      {tab === "general" && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+            {[["📦","Pedidos Totales", tot.pedidos, null, "#ede9ff"],["✅","Entregados", tot.ent, T.green, T.greenBg],["💰","Ingresos Reales", clp(tot.ingReal), T.green, T.greenBg],["📣","Gasto en Ads", clp(tot.ads), T.red, T.redBg],["💸","Costos Totales", clp(tot.costos), T.red, T.redBg],["📈","Utilidad Total", clp(tot.util), tot.util >= 0 ? T.green : T.red, tot.util >= 0 ? T.greenBg : T.redBg],["🎯","CPA Real", clp(tot.cpa), null, T.yellowBg],["⚡","ROAS Real", x2(tot.roas), T.accent, T.accentL],["📊","Rentabilidad %", pct(tot.rent), tot.rent >= 0 ? T.green : T.red, tot.rent >= 0 ? T.greenBg : T.redBg]].map(([icon, label, value, color, bg]) => (
+              <div key={label} style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px", boxShadow: T.shadow, display: "flex", alignItems: "flex-start", gap: 12 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{icon}</div>
+                <div><div style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>{label}</div><div style={{ fontSize: 20, fontWeight: 800, color: color || T.text, letterSpacing: "-0.02em" }}>{value}</div></div>
+              </div>
+            ))}
+          </div>
+
+          {chartData.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+              {[["Evolución Pedidos Totales","pedidos",T.accent],["Evolución Ingresos Reales","ingReal",T.green],["Utilidad Neta","util",T.accent]].map(([title, key, color]) => (
+                <Card key={key}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 12 }}>{title}</div>
+                  <ResponsiveContainer width="100%" height={170}>
+                    <AreaChart data={chartData}>
+                      <defs><linearGradient id={`g${key}`} x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={color} stopOpacity={0.15}/><stop offset="95%" stopColor={color} stopOpacity={0}/></linearGradient></defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke={T.border} />
+                      <XAxis dataKey="fecha" tick={{ fill: T.sub, fontSize: 10 }} />
+                      <YAxis tick={{ fill: T.sub, fontSize: 10 }} tickFormatter={v => key === "pedidos" ? v : `$${(v/1000).toFixed(0)}K`} />
+                      <Tooltip contentStyle={ttStyle} formatter={v => key === "pedidos" ? v : clp(v)} />
+                      <Area type="monotone" dataKey={key} stroke={color} fill={`url(#g${key})`} strokeWidth={2} dot={{ r: 3 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </Card>
+              ))}
+              <Card>
+                <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 12 }}>Ads vs Ingresos por Día</div>
+                <ResponsiveContainer width="100%" height={170}>
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={T.border} />
+                    <XAxis dataKey="fecha" tick={{ fill: T.sub, fontSize: 10 }} />
+                    <YAxis tick={{ fill: T.sub, fontSize: 10 }} tickFormatter={v => `$${(v/1000).toFixed(0)}K`} />
+                    <Tooltip contentStyle={ttStyle} formatter={v => clp(v)} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="ads" fill={T.red} name="Ads" radius={[3,3,0,0]} opacity={0.8} />
+                    <Bar dataKey="ingReal" fill={T.green} name="Ingresos" radius={[3,3,0,0]} opacity={0.8} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
+            </div>
+          )}
+
+          <Card style={{ padding: 0, overflow: "hidden" }}>
+            <div style={{ padding: "14px 20px", fontWeight: 700, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}` }}>Datos Detallados</div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr><TH>Fecha</TH><TH>Producto</TH><TH>Ads</TH><TH>Pedidos</TH><TH>Conf.</TH><TH>Entregados</TH><TH>CPA Falso</TH><TH>CPA Real</TH><TH>Ticket</TH><TH>Ing. Reales</TH><TH>Costos</TH><TH>Utilidad</TH><TH>Rent.%</TH><TH>Decisión</TH></tr></thead>
+                <tbody>
+                  {computed.map((e, i) => {
+                    const dec = semaforo(e.roas, e.beroas);
+                    return (
+                      <tr key={i} style={{ background: i % 2 === 0 ? T.white : T.bg }}>
+                        <TD>{e.fecha}</TD><TD bold>{e.prodNombre}</TD><TD>{clp(nz(e.gastoAds))}</TD>
+                        <TD>{nz(e.pedidosTotales)}</TD><TD>{nz(e.confirmados)}</TD><TD>{nz(e.entregados)}</TD>
+                        <TD>{clp(e.cpaFalso)}</TD><TD>{clp(e.cpaReal)}</TD><TD>{clp(e.ticket)}</TD>
+                        <TD color={T.green} bold>{clp(e.ingReal)}</TD><TD color={T.red}>{clp(e.costosTot)}</TD>
+                        <TD color={e.utilidad >= 0 ? T.green : T.red} bold>{clp(e.utilidad)}</TD>
+                        <TD color={e.rent >= 0 ? T.green : T.red}>{pct(e.rent)}</TD>
+                        <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>{dec ? <Badge type={dec} /> : "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      )}
+
+      {tab === "producto" && (
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "14px 20px", fontWeight: 700, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}` }}>Reporte por Producto</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr><TH>Producto</TH><TH>Total Pedidos</TH><TH>Entregados</TH><TH>Ing. Reales</TH><TH>Utilidad Total</TH><TH>Rentabilidad</TH><TH>CPA Real</TH><TH>ROAS</TH><TH>% Conf.</TH><TH>% Entrega</TH></tr></thead>
+            <tbody>
+              {byProd.map((p, i) => {
+                const roas = p.ads > 0 ? p.ing / p.ads : null;
+                const rent = p.ing > 0 ? p.util / p.ing : null;
+                const cpa = p.ent > 0 ? p.ads / p.ent : null;
+                const tcA = p.ped > 0 ? p.conf / p.ped : null;
+                const teA = p.conf > 0 ? p.ent / p.conf : null;
+                return (
+                  <tr key={i} style={{ background: i % 2 === 0 ? T.white : T.bg }}>
+                    <TD bold>{p.nombre}</TD><TD>{p.ped}</TD><TD>{p.ent}</TD>
+                    <TD color={T.green} bold>{clp(p.ing)}</TD>
+                    <TD color={p.util >= 0 ? T.green : T.red} bold>{clp(p.util)}</TD>
+                    <TD color={rent >= 0 ? T.green : T.red}>{pct(rent)}</TD>
+                    <TD>{clp(cpa)}</TD><TD color={T.accent}>{x2(roas)}</TD>
+                    <TD>{pct(tcA)}</TD><TD>{pct(teA)}</TD>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── SIMULACIONES ─────────────────────────────────────────────────────────────
+function Simulaciones({ cfg, productos }) {
+  const [params, setParams] = useState({
+    acido: { envio: nz(cfg.costoEnvio), tc: Math.max(nz(cfg.tasaConf) - 20, 30), te: Math.max(nz(cfg.tasaEnt) - 20, 30) },
+    base: { envio: nz(cfg.costoEnvio), tc: nz(cfg.tasaConf), te: nz(cfg.tasaEnt) },
+    optimista: { envio: Math.max(nz(cfg.costoEnvio) - 1500, 3000), tc: Math.min(nz(cfg.tasaConf) + 15, 95), te: Math.min(nz(cfg.tasaEnt) + 15, 95) },
+  });
+  const sp = (sc, k, v) => setParams(p => ({ ...p, [sc]: { ...p[sc], [k]: +v } }));
+
+  const scMeta = { acido: { label: "😰 Caso Ácido", color: T.red, bg: T.redBg, desc: "Peor escenario realista" }, base: { label: "📊 Caso Base", color: T.accent, bg: T.accentL, desc: "Parámetros actuales" }, optimista: { label: "🚀 Caso Optimista", color: T.green, bg: T.greenBg, desc: "Escalando con mejoras" } };
+
+  if (productos.length === 0) return <Card style={{ textAlign: "center", padding: 48 }}><div style={{ fontSize: 36 }}>🔮</div><div style={{ color: T.sub, marginTop: 12 }}>Primero agrega productos en "Mis Productos".</div></Card>;
+
+  const calcSim = (prod, sc) => {
+    const p = params[sc];
+    const pv = nz(prod.precioVenta), cu = nz(prod.costoUnitario);
+    const cpa = nz(prod.cpaEstimado || cfg.cpaEstimado);
+    const env = nz(p.envio), tc = p.tc / 100, te = p.te / 100;
+    const realEnt = tc * te;
+    const ingR = pv * realEnt, costoR = cu * realEnt + env * tc;
+    const cpaMax = ingR - costoR;
+    const util = ingR - costoR - cpa;
+    const beroas = cpaMax > 0 ? pv / cpaMax : null;
+    return { ingR, costoR, cpaMax, beroas, util, margen: ingR > 0 ? util / ingR : null };
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+        {["acido","base","optimista"].map(sc => {
+          const m = scMeta[sc]; const p = params[sc];
+          return (
+            <Card key={sc} style={{ border: `1.5px solid ${m.color}40` }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: m.color, marginBottom: 4 }}>{m.label}</div>
+              <div style={{ fontSize: 12, color: T.sub, marginBottom: 14 }}>{m.desc}</div>
+              {sc !== "base" ? (
+                <div style={{ display: "grid", gap: 10 }}>
+                  <Inp label="Costo de Envío (CLP)" value={p.envio} onChange={v => sp(sc, "envio", v)} />
+                  <InpPct label="% Confirmación" value={p.tc} onChange={v => sp(sc, "tc", v)} />
+                  <InpPct label="% Entrega" value={p.te} onChange={v => sp(sc, "te", v)} />
+                </div>
+              ) : (
+                <div style={{ background: m.bg, borderRadius: 8, padding: 12, fontSize: 12, color: T.sub }}>
+                  Usa parámetros de cada producto.<br />
+                  Global: Envío {clp(cfg.costoEnvio)} · TC {cfg.tasaConf}% · TE {cfg.tasaEnt}%
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+
+      {productos.map(prod => (
+        <Card key={prod.id}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 14 }}>
+            📦 {prod.nombre} <span style={{ fontSize: 12, color: T.sub, fontWeight: 400 }}>— {clp(nz(prod.precioVenta))} · Costo {clp(nz(prod.costoUnitario))}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+            {["acido","base","optimista"].map(sc => {
+              const m = scMeta[sc]; const r = calcSim(prod, sc);
+              return (
+                <div key={sc} style={{ background: m.bg, borderRadius: 10, padding: 14, border: `1px solid ${m.color}30` }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: m.color, marginBottom: 10 }}>{m.label}</div>
+                  {[["Ingreso Real/pedido", clp(r.ingR)], ["Costo Real/pedido", clp(r.costoR)], ["CPA Máximo", clp(r.cpaMax), r.cpaMax > 0 ? T.green : T.red], ["Utilidad Unit.", clp(r.util), r.util >= 0 ? T.green : T.red], ["Márgen", pct(r.margen), r.margen >= 0 ? T.green : T.red], ["BEROAS", x2(r.beroas), m.color]].map(([l, v, c]) => (
+                    <div key={l} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                      <span style={{ color: T.sub }}>{l}</span>
+                      <strong style={{ color: c || T.text }}>{v}</strong>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ─── APP ──────────────────────────────────────────────────────────────────────
+const NAV = [["calculadora","🧮","Calculadora"],["productos","📦","Mis Productos"],["registro","➕","Registro Diario"],["dashboard","📊","Dashboard"],["simulaciones","🔮","Simulaciones"]];
+
+export default function App() {
+  const stored = hydrate();
+  const [page, setPage] = useState("calculadora");
+  const [cfg, setCfg] = useState(stored.cfg || GCFG);
+  const [productos, setProductos] = useState(stored.productos || []);
+  const [entries, setEntries] = useState(stored.entries || []);
+
+  useEffect(() => persist({ cfg, productos, entries }), [cfg, productos, entries]);
+
+  const headers = { calculadora: ["Calculadora de Precios","Costeo completo con análisis de 2ª unidad, BEROAS y ganancia proyectada"], productos: ["Mis Productos","Catálogo con costeo, antecedentes de investigación y links de anuncios"], registro: ["Registro Diario","Testeos con métricas de ads (CPM, CPC, CTR) + checklist de calidad"], dashboard: ["Dashboard","Análisis de rentabilidad, gráficos y resumen por producto"], simulaciones: ["Simulaciones","Proyecta rentabilidad en escenario ácido, base y optimista"] };
+
+  return (
+    <div style={{ display: "flex", minHeight: "100vh", background: T.bg, fontFamily: "'Nunito', 'Sora', 'Segoe UI', sans-serif" }}>
+      {/* Sidebar */}
+      <div style={{ width: 228, background: T.white, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", flexShrink: 0 }}>
+        <div style={{ padding: "22px 20px 18px", borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 36, height: 36, background: `linear-gradient(135deg, ${T.accent}, #8b84ff)`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📈</div>
+            <div><div style={{ fontWeight: 900, fontSize: 18, color: T.text, letterSpacing: "-0.04em" }}>Drofit</div><div style={{ fontSize: 10, color: T.sub, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em" }}>COD · CLP</div></div>
+          </div>
+        </div>
+        <nav style={{ padding: "10px 0", flex: 1 }}>
+          {NAV.map(([id, icon, label]) => (
+            <button key={id} onClick={() => setPage(id)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "11px 20px", background: page === id ? T.accentL : "none", borderLeft: page === id ? `3px solid ${T.accent}` : "3px solid transparent", border: "none", color: page === id ? T.accent : T.sub, fontWeight: page === id ? 700 : 500, fontSize: 14, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+              <span style={{ fontSize: 16 }}>{icon}</span>{label}
+            </button>
+          ))}
+        </nav>
+        <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 11, color: T.sub, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Resumen</div>
+          <div style={{ display: "flex", gap: 20 }}>
+            <div><div style={{ fontSize: 20, fontWeight: 900, color: T.accent }}>{productos.length}</div><div style={{ fontSize: 11, color: T.sub }}>productos</div></div>
+            <div><div style={{ fontSize: 20, fontWeight: 900, color: T.text }}>{entries.length}</div><div style={{ fontSize: 11, color: T.sub }}>testeos</div></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main */}
+      <div style={{ flex: 1, overflow: "auto" }}>
+        <div style={{ background: T.white, borderBottom: `1px solid ${T.border}`, padding: "18px 30px", position: "sticky", top: 0, zIndex: 10 }}>
+          <div style={{ fontWeight: 900, fontSize: 21, color: T.text, letterSpacing: "-0.03em" }}>{headers[page][0]}</div>
+          <div style={{ fontSize: 13, color: T.sub, marginTop: 2 }}>{headers[page][1]}</div>
+        </div>
+        <div style={{ padding: 26 }}>
+          {page === "calculadora"  && <Calculadora cfg={cfg} setCfg={setCfg} productos={productos} />}
+          {page === "productos"    && <MisProductos productos={productos} setProductos={setProductos} cfg={cfg} />}
+          {page === "registro"     && <Registro entries={entries} setEntries={setEntries} productos={productos} cfg={cfg} />}
+          {page === "dashboard"    && <Dashboard entries={entries} productos={productos} cfg={cfg} />}
+          {page === "simulaciones" && <Simulaciones cfg={cfg} productos={productos} />}
+        </div>
+      </div>
+    </div>
+  );
+}
