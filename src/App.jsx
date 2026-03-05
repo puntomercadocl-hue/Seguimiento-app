@@ -2,10 +2,9 @@ import { useState, useEffect, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, AreaChart, Area } from "recharts";
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
-const SK = "drofitv4"; // bumped to clear old cached TikTok data
+const SK = "drofitv4";
 const persist = (d) => { try { localStorage.setItem(SK, JSON.stringify(d)); } catch {} };
 const hydrate = () => { try { return JSON.parse(localStorage.getItem(SK)) || {}; } catch { return {}; } };
-// Fecha helpers
 const hoy = () => new Date().toISOString().slice(0,10);
 const hace30 = () => { const d = new Date(); d.setDate(d.getDate()-30); return d.toISOString().slice(0,10); };
 
@@ -28,88 +27,67 @@ const nz = (v) => num(v, 0);
 // ─── Costeo cálculo (fiel al Excel COSTEO_PRODUCTO) ──────────────────────────
 function calcCosteo(p, cfg) {
   const pv   = nz(p.precioVenta);
-  const cu   = nz(p.costoUnitario);
+  const cu   = nz(p.costoUnitario);                        // CAMPO CORRECTO
   const env  = nz(p.costoEnvio  || cfg.costoEnvio);
   const tc   = nz(p.tasaConf    || cfg.tasaConf) / 100;   // Órdenes Confirmadas %
   const te   = nz(p.tasaEnt     || cfg.tasaEnt)  / 100;   // Órdenes Entregadas %
-  const cpa  = nz(p.cpaEstimado || cfg.cpaEstimado || 5000); // CPA Estimado
+  const cpa  = nz(p.cpaEstimado || cfg.cpaEstimado || 5000);
   const ped  = nz(p.pedidosDiarios || 1);
-  const p2da = nz(p.pct2daUnidad) / 100; // % pedidos con 2da unidad al 50%
+  const p2da = nz(p.pct2daUnidad) / 100;
 
-  // ── Fila 14: Órdenes Reales Entregadas = TC × TE
+  // Fila 14: Órdenes Reales Entregadas = TC × TE
   const realEnt = tc * te;
 
-  // ════════════════════════════════════════════════════
-  // BLOQUE 1 — Costeo Unitario (filas 15-27 del Excel)
-  // ════════════════════════════════════════════════════
-  const ingReales        = pv * realEnt;               // f15
-  const costosProdReales = cu * realEnt;               // f16
-  const costoEnvTotal    = env * tc;                   // f17  (envío × confirmados)
-  const costoAnuncios    = cpa;                        // f18
+  // ════ BLOQUE 1 — Costeo Unitario (filas 15-27 del Excel) ════
+  const ingReales        = pv * realEnt;               // f15: =B14*B8
+  const costosProdReales = cu * realEnt;               // f16: =B14*B9
+  const costoEnvTotal    = env * tc;                   // f17: =B12*B10  (envío × confirmados, NO entrega real)
+  const costoAnuncios    = cpa;                        // f18: =B11
   const utilUnitReal     = ingReales - costosProdReales - costoEnvTotal - costoAnuncios; // f19
   const margenNeto       = ingReales > 0 ? utilUnitReal / ingReales : null; // f20
 
-  // f22 — Precio para quedar neto = (CU×realEnt + Envío×TC + CPA) / realEnt
+  // f22: Precio para quedar neto = (CU×realEnt + Envío×TC + CPA) / realEnt
   // Excel exacto: =(B9*B14 + B10*B12 + B11) / B14
   const precioNeto = realEnt > 0 ? (cu * realEnt + env * tc + cpa) / realEnt : null;
 
-  // f23 — CPA "Real" = CPA / realEnt
+  // f23: CPA "Real" = CPA / realEnt
   // Excel exacto: =B11/B14
   const cpaRealUnit = realEnt > 0 ? cpa / realEnt : null;
 
-  // f24 — Costo por compra máximo aceptable
-  // Excel exacto: =B14*(B8-B9) - B12*B10  →  realEnt*(pv-cu) - tc*env
+  // f24: Costo por compra máximo aceptable
+  // Excel exacto: =B14*(B8-B9) - B12*B10  → realEnt*(pv-cu) - tc*env
   const cpaMax = realEnt * (pv - cu) - tc * env;
 
   // BEROAS = Precio / CPA máximo
   const beroas = cpaMax > 0 ? pv / cpaMax : null;
 
-  // f25-27 — Proyección diaria / mensual
+  // f25-27: Proyección diaria / mensual
   const gananciaDiaria  = utilUnitReal * ped;
   const gananciaMensual = gananciaDiaria * 30;
 
-  // ════════════════════════════════════════════════════
-  // BLOQUE 2 — Con 2ª Unidad al 50% OFF (filas 31-42)
-  // ════════════════════════════════════════════════════
-  // En el Excel el % de 2da unidad sube los ingresos y costos de producto
-  // proporcional a cuántos pedidos llevan la 2da unidad (p2da × realEnt de base)
+  // ════ BLOQUE 2 — Con 2ª Unidad al 50% OFF (filas 31-42) ════
   let ing2=null, costosProd2=null, costoEnv2=null, util2=null;
   let margen2=null, aumentoMargen=null, gan2diaria=null, gan2mensual=null;
 
   if (p2da > 0) {
-    // f32: =(1-p2da)*ingReales + p2da*(ingReales + 0.5*ingReales)
-    // = ingReales * (1 + 0.5*p2da)
     ing2 = (1 - p2da) * ingReales + p2da * (ingReales + 0.5 * ingReales);
-
-    // f33: =(1-p2da)*costosProd + p2da*(2*costosProd)
-    // = costosProd * (1 + p2da)
     costosProd2 = (1 - p2da) * costosProdReales + p2da * (2 * costosProdReales);
-
-    costoEnv2 = costoEnvTotal;                             // f34: =B17
+    costoEnv2 = costoEnvTotal;
     const costoTotal2 = costosProd2 + costoEnv2 + costoAnuncios;
-    util2         = ing2 - costoTotal2;                    // f36
-    margen2       = ing2 > 0 ? util2 / ing2 : null;       // f37
+    util2         = ing2 - costoTotal2;
+    margen2       = ing2 > 0 ? util2 / ing2 : null;
     aumentoMargen = (margen2 != null && margenNeto != null && margenNeto !== 0)
-      ? margen2 / margenNeto - 1 : null;                  // f38: =B37/B20-1
-    gan2diaria  = ped * util2;                             // f41
-    gan2mensual = gan2diaria * 30;                         // f42
+      ? margen2 / margenNeto - 1 : null;
+    gan2diaria  = ped * util2;
+    gan2mensual = gan2diaria * 30;
   }
 
-  // ════════════════════════════════════════════════════
-  // BLOQUE 3 — Análisis Total Pedidos Reales (filas 44-58)
-  // Se alimenta con datos reales de Shopify (se pasan por parámetro)
-  // ════════════════════════════════════════════════════
-  // Se calcula en la UI al ingresar los datos reales
-
   return {
-    // inputs derivados
     tc, te, realEnt,
-    // Bloque 1
     ingReales, costosProdReales, costoEnvTotal, costoAnuncios,
     utilUnitReal, margenNeto,
     precioNeto, cpaRealUnit, cpaMax, beroas,
     gananciaDiaria, gananciaMensual,
-    // Bloque 2
     ing2, costosProd2, costoEnv2, util2, margen2, aumentoMargen,
     gan2diaria, gan2mensual,
   };
@@ -117,23 +95,22 @@ function calcCosteo(p, cfg) {
 
 // ─── Análisis Pedidos Reales (Bloque 3 del Excel, filas 44-58) ───────────────
 function calcPedidosReales(r, cfg, prod) {
-  // r = { totalPedidos, tcReal, teReal, costoEnvioReal, gastoAds }
   const pv   = nz(prod?.precioVenta);
   const cu   = nz(prod?.costoUnitario);
   const env  = nz(r.costoEnvioReal || prod?.costoEnvio || cfg.costoEnvio);
-  const tc   = nz(r.tcReal)  / 100;   // % conf real Shopify
-  const te   = nz(r.teReal)  / 100;   // % entrega real Shopify
+  const tc   = nz(r.tcReal)  / 100;
+  const te   = nz(r.teReal)  / 100;
   const pt   = nz(r.totalPedidos);
   const ads  = nz(r.gastoAds);
 
   const realEnt = tc * te;
-  const cpaReal = pt > 0 ? ads / pt : null;             // f49
+  const cpaReal = pt > 0 ? ads / pt : null;
 
-  const ingReales  = pv * realEnt * pt;                 // f53
-  const costosProd = cu * realEnt * pt;                 // f54
-  const costoEnv   = env * tc * pt;                     // f55
-  const utilReal   = ingReales - costosProd - costoEnv - ads; // f57
-  const margen     = ingReales > 0 ? utilReal / ingReales : null; // f58
+  const ingReales  = pv * realEnt * pt;
+  const costosProd = cu * realEnt * pt;
+  const costoEnv   = env * tc * pt;
+  const utilReal   = ingReales - costosProd - costoEnv - ads;
+  const margen     = ingReales > 0 ? utilReal / ingReales : null;
 
   return { cpaReal, realEnt, ingReales, costosProd, costoEnv, utilReal, margen };
 }
@@ -167,7 +144,7 @@ function semaforo(roas, beroas) {
   return "pausar";
 }
 
-// ─── UI ───────────────────────────────────────────────────────────────────────
+// ─── UI Components ────────────────────────────────────────────────────────────
 const Card = ({ children, style }) => (
   <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, boxShadow: T.shadow, ...style }}>{children}</div>
 );
@@ -237,36 +214,50 @@ const TabBar = ({ tabs, active, onChange }) => (
   </div>
 );
 
+// ─── Date Range Picker ────────────────────────────────────────────────────────
+const DateRangePicker = ({ from, to, onChange, label }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.accentL, borderRadius: 10, padding: "10px 14px", border: `1.5px solid ${T.accent}33` }}>
+    <span style={{ fontSize: 14 }}>📅</span>
+    {label && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, whiteSpace: "nowrap" }}>{label}</span>}
+    <input type="date" value={from} onChange={e => onChange({ from: e.target.value, to })}
+      style={{ fontSize: 13, padding: "6px 10px", border: `1.5px solid ${T.accent}55`, borderRadius: 8, color: T.text, background: T.white, fontFamily: "inherit", outline: "none", cursor: "pointer" }} />
+    <span style={{ fontSize: 12, color: T.sub, fontWeight: 600 }}>→</span>
+    <input type="date" value={to} onChange={e => onChange({ from, to: e.target.value })}
+      style={{ fontSize: 13, padding: "6px 10px", border: `1.5px solid ${T.accent}55`, borderRadius: 8, color: T.text, background: T.white, fontFamily: "inherit", outline: "none", cursor: "pointer" }} />
+    <button onClick={() => onChange({ from: hace30(), to: hoy() })}
+      style={{ fontSize: 11, padding: "6px 10px", border: `1.5px solid ${T.accent}55`, borderRadius: 8, color: T.accent, background: T.white, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, whiteSpace: "nowrap" }}>Últimos 30d</button>
+    <button onClick={() => onChange({ from: "", to: "" })}
+      style={{ fontSize: 11, padding: "6px 10px", border: `1.5px solid ${T.border}`, borderRadius: 8, color: T.sub, background: T.white, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>Todo</button>
+  </div>
+);
+
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 const GCFG = { costoCompra: 5000, costoEnvio: 7500, tasaConf: 75, tasaEnt: 75, cpaEstimado: 5000 };
 const EPROD = { nombre: "", proveedor: "", idDropi: "", precioVenta: "", costoUnitario: "", costoEnvio: "", tasaConf: "", tasaEnt: "", cpaEstimado: "", pedidosDiarios: "1", pct2daUnidad: "10", linkLanding: "", linkRef1: "", linkRef2: "", angulo: "", validadores: "", linkAnuncio1: "", linkAnuncio2: "" };
 const EENTRY = { fecha: "", productoId: "", gastoAds: "", diasCampana: "", cpm: "", cpc: "", ctr: "", ventasFacturadas: "", pedidosTotales: "", unidades: "", confirmados: "", entregados: "", devoluciones: "", plataforma: "Meta" };
 const CHECKLIST = ["¿Tu producto soluciona un problema o necesidad importante?","¿Tiene un efecto \"wow\" en los primeros 5 segundos?","¿Validaste que es un producto exitoso (biblioteca de anuncios)?","¿Utilizaste videos verticales (9:16) o cuadrado (1:1)?","¿Sacaste videos de la librería de Meta?","¿Tus videos tienen un gancho que detenga el scroll?","¿Usaste videos con voz en off?","¿El producto en el video es el mismo que en la landing?","¿Tu primera imagen del carrusel muestra el producto en uso?","¿Usaste elementos visuales como GIFs (mínimo 3)?","¿Profundizaste más en beneficios que en características?","¿El ángulo de venta del video es congruente con la landing?","¿La oferta de tu landing es REALMENTE atractiva?"];
 
-// ─── CALCULADORA / COSTEO ────────────────────────────────────────────────────
+// ─── CALCULADORA ─────────────────────────────────────────────────────────────
 function Calculadora({ cfg, setCfg, productos }) {
   const [sel, setSel] = useState("");
   const [prod, setProd] = useState({ ...EPROD });
-  // Bloque 3 — datos reales Shopify
   const [real, setReal] = useState({ totalPedidos: "", tcReal: "", teReal: "", costoEnvioReal: "", gastoAds: "" });
   const sp = (k, v) => setProd(p => ({ ...p, [k]: v }));
   const sr = (k, v) => setReal(r => ({ ...r, [k]: v }));
 
   useEffect(() => {
     if (!sel) { setProd({ ...EPROD }); return; }
-    const p = productos.find(x => x.id === +sel);
+    const p = productos.find(x => x.id === +sel || x.id === sel);
     if (p) setProd(p);
   }, [sel]);
 
   const c = calcCosteo(prod, cfg);
   const hasData = prod.precioVenta && prod.costoUnitario;
-  const selProdObj = sel ? productos.find(x => x.id === +sel) : prod;
+  const selProdObj = sel ? productos.find(x => x.id === +sel || x.id === sel) : prod;
   const hasReal = real.totalPedidos && (real.tcReal || real.teReal);
   const r3 = hasReal ? calcPedidosReales(real, cfg, selProdObj) : null;
-
   const divider = <div style={{ height: 1, background: T.border, margin: "8px 0" }} />;
 
-  // Shared row style
   const RowB = ({ label, value, color, bold, highlight }) => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderRadius: 7, background: highlight ? (color === T.green ? T.greenBg : color === T.red ? T.redBg : T.accentL) : T.bg, marginBottom: 3 }}>
       <span style={{ fontSize: 13, color: T.sub }}>{label}</span>
@@ -276,8 +267,6 @@ function Calculadora({ cfg, setCfg, productos }) {
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
-
-      {/* ── Parámetros Globales ── */}
       <Card>
         <SectionTitle icon="⚙️" title="Parámetros Globales" sub="Valores por defecto — se aplican a todos los productos" />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14 }}>
@@ -293,7 +282,6 @@ function Calculadora({ cfg, setCfg, productos }) {
         </div>
       </Card>
 
-      {/* ── INPUTS del producto ── */}
       <Card>
         <SectionTitle icon="📦" title="Datos del Producto" sub="Ingresa o carga un producto de tu catálogo" />
         {productos.length > 0 && (
@@ -318,30 +306,17 @@ function Calculadora({ cfg, setCfg, productos }) {
       </Card>
 
       {hasData && (<>
-
-        {/* ══════════════════════════════════════════════════════
-            BLOQUE 1 — Costeo Unitario (filas 14–27 del Excel)
-        ══════════════════════════════════════════════════════ */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
           <Card>
-            <div style={{ fontWeight: 800, fontSize: 15, color: T.text, marginBottom: 14 }}>
-              📊 Costeo Unitario
-            </div>
-
-            {/* inputs derivados clave */}
+            <div style={{ fontWeight: 800, fontSize: 15, color: T.text, marginBottom: 14 }}>📊 Costeo Unitario</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
-              {[
-                ["Órd. Confirmadas", pct(c.tc)],
-                ["Órd. Entregadas", pct(c.te)],
-                ["Órd. Reales Entregadas", pct(c.realEnt)],
-              ].map(([l, v]) => (
+              {[["Órd. Confirmadas", pct(c.tc)], ["Órd. Entregadas", pct(c.te)], ["Órd. Reales Entregadas", pct(c.realEnt)]].map(([l, v]) => (
                 <div key={l} style={{ background: T.accentL, borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
                   <div style={{ fontSize: 11, color: T.sub, fontWeight: 700 }}>{l}</div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: T.accent }}>{v}</div>
                 </div>
               ))}
             </div>
-
             <RowB label="Ingresos Reales" value={clp(c.ingReales)} color={T.green} />
             <RowB label="Costos Producto Reales" value={clp(c.costosProdReales)} color={T.red} />
             <RowB label="Costo Envío Total" value={clp(c.costoEnvTotal)} color={T.red} />
@@ -354,23 +329,17 @@ function Calculadora({ cfg, setCfg, productos }) {
             <RowB label="Ganancia Mensual (×30)" value={clp(c.gananciaMensual)} color={c.gananciaMensual >= 0 ? T.green : T.red} bold highlight />
           </Card>
 
-          {/* Columna derecha — métricas clave */}
           <div style={{ display: "grid", gap: 12, alignContent: "start" }}>
-            {/* Precio para quedar neto */}
             <div style={{ background: T.accentL, border: `2px solid ${T.accent}`, borderRadius: 14, padding: "16px 20px" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase", letterSpacing: "0.07em" }}>Precio para Quedar Neto</div>
               <div style={{ fontSize: 30, fontWeight: 900, color: T.accent, letterSpacing: "-0.03em", marginTop: 4 }}>{clp(c.precioNeto)}</div>
               <div style={{ fontSize: 11, color: T.sub, marginTop: 3 }}>Precio mínimo para no perder dinero</div>
             </div>
-
-            {/* CPA Real */}
             <div style={{ background: T.orangeBg, border: `1.5px solid #fed7aa`, borderRadius: 12, padding: "14px 18px" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.orange, textTransform: "uppercase", letterSpacing: "0.07em" }}>CPA "Real" (por entrega real)</div>
               <div style={{ fontSize: 26, fontWeight: 900, color: T.orange, marginTop: 4 }}>{clp(c.cpaRealUnit)}</div>
               <div style={{ fontSize: 11, color: T.sub, marginTop: 2 }}>= CPA ÷ % Real Entregados ({pct(c.realEnt)})</div>
             </div>
-
-            {/* CPA Máximo + BEROAS */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ background: c.cpaMax > 0 ? T.greenBg : T.redBg, borderRadius: 12, padding: "14px 16px", border: `1.5px solid ${c.cpaMax > 0 ? "#6ee7b7" : "#fca5a5"}` }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase" }}>Costo Compra Máx.</div>
@@ -386,14 +355,9 @@ function Calculadora({ cfg, setCfg, productos }) {
           </div>
         </div>
 
-        {/* ══════════════════════════════════════════════════════
-            BLOQUE 2 — Con 2ª Unidad al 50% OFF (filas 31-42)
-        ══════════════════════════════════════════════════════ */}
         {nz(prod.pct2daUnidad) > 0 && c.ing2 !== null && (
           <Card style={{ border: `1.5px solid ${T.accent}55` }}>
-            <div style={{ fontWeight: 800, fontSize: 15, color: T.accent, marginBottom: 14 }}>
-              🎁 Considerando {nz(prod.pct2daUnidad)}% de Segunda Unidad (50% OFF)
-            </div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: T.accent, marginBottom: 14 }}>🎁 Considerando {nz(prod.pct2daUnidad)}% de Segunda Unidad (50% OFF)</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
               <div>
                 <RowB label="Ingresos Reales (con 2ª unidad)" value={clp(c.ing2)} color={T.green} />
@@ -403,9 +367,7 @@ function Calculadora({ cfg, setCfg, productos }) {
                 {divider}
                 <RowB label="Utilidad" value={clp(c.util2)} color={c.util2 >= 0 ? T.green : T.red} bold highlight />
                 <RowB label="Márgen Neto" value={pct(c.margen2)} color={c.margen2 >= 0 ? T.green : T.red} bold />
-                {c.aumentoMargen !== null && (
-                  <RowB label="Aumento de Margen vs sin 2ª unidad" value={`+${pct(c.aumentoMargen)}`} color={T.green} bold />
-                )}
+                {c.aumentoMargen !== null && <RowB label="Aumento de Margen vs sin 2ª unidad" value={`+${pct(c.aumentoMargen)}`} color={T.green} bold />}
               </div>
               <div>
                 {divider}
@@ -413,7 +375,7 @@ function Calculadora({ cfg, setCfg, productos }) {
                 <RowB label="Ganancia Mensual (×30)" value={clp(c.gan2mensual)} color={c.gan2mensual >= 0 ? T.green : T.red} bold highlight />
                 {c.gan2mensual > c.gananciaMensual && (
                   <div style={{ marginTop: 10, background: T.greenBg, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: T.green, fontWeight: 700 }}>
-                    ↑ La 2ª unidad sube la ganancia mensual en {clp(c.gan2mensual - c.gananciaMensual)} vs sin upsell
+                    ↑ La 2ª unidad sube la ganancia mensual en {clp(c.gan2mensual - c.gananciaMensual)}
                   </div>
                 )}
               </div>
@@ -421,16 +383,9 @@ function Calculadora({ cfg, setCfg, productos }) {
           </Card>
         )}
 
-        {/* ══════════════════════════════════════════════════════
-            BLOQUE 3 — Análisis con Pedidos Reales de Shopify (filas 44-58)
-        ══════════════════════════════════════════════════════ */}
         <Card style={{ border: `1.5px solid ${T.yellowBg}` }}>
-          <div style={{ fontWeight: 800, fontSize: 15, color: T.text, marginBottom: 4 }}>
-            🛍️ Análisis Total con Pedidos Reales (Shopify)
-          </div>
-          <div style={{ fontSize: 13, color: T.sub, marginBottom: 16 }}>
-            Ingresa los datos reales de tu campaña para ver la rentabilidad real
-          </div>
+          <div style={{ fontWeight: 800, fontSize: 15, color: T.text, marginBottom: 4 }}>🛍️ Análisis Total con Pedidos Reales (Shopify)</div>
+          <div style={{ fontSize: 13, color: T.sub, marginBottom: 16 }}>Ingresa los datos reales de tu campaña para ver la rentabilidad real</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 16 }}>
             <Inp label="Total Pedidos (Shopify)" value={real.totalPedidos} onChange={v => sr("totalPedidos", v)} placeholder="0" />
             <Inp label="Gasto en Anuncios (CLP)" value={real.gastoAds} onChange={v => sr("gastoAds", v)} placeholder="0" />
@@ -438,7 +393,6 @@ function Calculadora({ cfg, setCfg, productos }) {
             <InpPct label="Órdenes Confirmadas (%)" value={real.tcReal} onChange={v => sr("tcReal", v)} placeholder={nz(prod.tasaConf || cfg.tasaConf)} />
             <InpPct label="Órdenes Entregadas (%)" value={real.teReal} onChange={v => sr("teReal", v)} placeholder={nz(prod.tasaEnt || cfg.tasaEnt)} />
           </div>
-
           {r3 ? (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
               <div>
@@ -454,7 +408,6 @@ function Calculadora({ cfg, setCfg, productos }) {
                 <RowB label="Utilidad Real" value={clp(r3.utilReal)} color={r3.utilReal >= 0 ? T.green : T.red} bold highlight />
                 <RowB label="Márgen Neto Real" value={pct(r3.margen)} color={r3.margen >= 0 ? T.green : T.red} bold />
                 <div style={{ marginTop: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.sub, marginBottom: 8 }}>Decisión basada en datos reales:</div>
                   {r3.utilReal > 0
                     ? <div style={{ background: T.greenBg, borderRadius: 8, padding: "10px 14px", color: T.green, fontWeight: 700, fontSize: 14 }}>✅ Rentable — Considera escalar</div>
                     : r3.utilReal > -30000
@@ -471,27 +424,25 @@ function Calculadora({ cfg, setCfg, productos }) {
           )}
         </Card>
 
-        {/* Fórmulas */}
         <Card style={{ background: T.bg }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 10 }}>📐 Fórmulas del Costeo</div>
+          <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 10 }}>📐 Fórmulas del Costeo (fiel al Excel)</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, color: T.sub, lineHeight: 1.8 }}>
             {[
               ["Órd. Reales Entregadas","TC × TE"],
               ["Ingresos Reales","Precio × (TC × TE)"],
               ["Costos Prod. Reales","Costo Unit. × (TC × TE)"],
-              ["Costo Envío Total","Envío × TC"],
+              ["Costo Envío Total","Envío × TC  ← solo confirmados"],
               ["Utilidad Unitaria","Ing.Reales − CostoProd − CostoEnv − CPA"],
               ["Márgen Neto","Utilidad / Ingresos Reales"],
-              ["Precio para quedar neto","(CostoProd + Envío×TC) / (TC×TE)"],
+              ["Precio para quedar neto","(CostoProd×realEnt + Envío×TC + CPA) / realEnt"],
               ["CPA Real por entrega","CPA Estimado / (TC × TE)"],
-              ["Costo Compra Máx.","Ing.Reales − CostoProd − CostoEnv"],
+              ["Costo Compra Máx.","realEnt×(Precio−Costo) − TC×Envío"],
               ["BEROAS","Precio / Costo Compra Máximo"],
             ].map(([l, v]) => (
               <div key={l}><strong style={{ color: T.text }}>{l}:</strong> {v}</div>
             ))}
           </div>
         </Card>
-
       </>)}
     </div>
   );
@@ -514,7 +465,6 @@ function MisProductos({ productos, setProductos, cfg }) {
 
   const edit = (p) => { setForm(p); setEditId(p.id); setShowForm(true); setActiveTab("basico"); };
   const del = (id) => setProductos(ps => ps.filter(p => p.id !== id));
-
   const c = calcCosteo(form, cfg);
 
   return (
@@ -652,16 +602,12 @@ function MisProductos({ productos, setProductos, cfg }) {
 
 // ─── REGISTRO ────────────────────────────────────────────────────────────────
 function Registro({ entries, setEntries, productos, cfg, dateRange }) {
-  const entriesFiltradas = useMemo(() => {
-    if (!dateRange?.from && !dateRange?.to) return entries;
-    return entries.filter(e => (!dateRange.from || e.fecha >= dateRange.from) && (!dateRange.to || e.fecha <= dateRange.to));
-  }, [entries, dateRange]);
   const [form, setForm] = useState({ ...EENTRY, fecha: new Date().toISOString().slice(0, 10) });
   const [checklist, setChecklist] = useState({});
   const [editIdx, setEditIdx] = useState(null);
   const [tab, setTab] = useState("metricas");
   const s = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const selProd = productos.find(p => p.id === +form.productoId);
+  const selProd = productos.find(p => p.id === +form.productoId || p.id === form.productoId);
 
   const save = () => {
     if (!form.fecha) return;
@@ -672,7 +618,6 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
     setChecklist({});
   };
 
-  // Métricas calculadas
   const cpaCalculado = nz(form.ventasFacturadas) > 0 && nz(form.pedidosTotales) > 0 ? nz(form.gastoAds) / nz(form.pedidosTotales) : null;
   const m = selProd ? calcEntry(form, cfg, selProd) : null;
   const dec = m ? semaforo(m.roas, m.beroas) : null;
@@ -689,8 +634,6 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
           </div>
           <Btn onClick={save}>💾 {editIdx !== null ? "Actualizar" : "Guardar"}</Btn>
         </div>
-
-        {/* Fecha + Producto */}
         <div style={{ display: "grid", gridTemplateColumns: "180px 1fr 140px", gap: 14, marginBottom: 16 }}>
           <div>
             <Label>📅 Fecha</Label>
@@ -781,7 +724,6 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
         )}
       </Card>
 
-      {/* Tabla registros */}
       {entries.length > 0 && (
         <Card style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "14px 20px", fontWeight: 700, fontSize: 15, color: T.text, borderBottom: `1px solid ${T.border}` }}>📋 Historial de Testeos ({entries.length})</div>
@@ -791,7 +733,7 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
               <tbody>
                 {[...entries].reverse().map((e, ri) => {
                   const idx = entries.length - 1 - ri;
-                  const prod = productos.find(p => p.id === +e.productoId);
+                  const prod = productos.find(p => p.id === +e.productoId || p.id === e.productoId);
                   const m = calcEntry(e, cfg, prod);
                   const dec = semaforo(m.roas, m.beroas);
                   const cpassed = Object.values(e.checklist || {}).filter(v => v === "si").length;
@@ -832,7 +774,6 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function Dashboard({ entries, productos, cfg, dateRange }) {
-  // Filtrar entries por rango de fechas
   const entriesFiltradas = useMemo(() => {
     if (!dateRange?.from && !dateRange?.to) return entries;
     return entries.filter(e => {
@@ -843,8 +784,8 @@ function Dashboard({ entries, productos, cfg, dateRange }) {
   const [tab, setTab] = useState("general");
   const [prodFil, setProdFil] = useState("todos");
 
-  const filtered = useMemo(() => prodFil === "todos" ? entries : entries.filter(e => String(e.productoId) === String(prodFil)), [entries, prodFil]);
-  const computed = useMemo(() => filtered.map(e => { const p = productos.find(x => x.id === +e.productoId); return { ...e, ...calcEntry(e, cfg, p), prodNombre: p?.nombre || "Sin nombre" }; }), [filtered, productos, cfg]);
+  const filtered = useMemo(() => prodFil === "todos" ? entriesFiltradas : entriesFiltradas.filter(e => String(e.productoId) === String(prodFil)), [entriesFiltradas, prodFil]);
+  const computed = useMemo(() => filtered.map(e => { const p = productos.find(x => x.id === +e.productoId || x.id === e.productoId); return { ...e, ...calcEntry(e, cfg, p), prodNombre: p?.nombre || "Sin nombre" }; }), [filtered, productos, cfg]);
 
   const tot = useMemo(() => {
     const t = { pedidos: 0, conf: 0, ent: 0, ingReal: 0, costos: 0, ads: 0, util: 0, rent: null, cpa: null, roas: null };
@@ -1006,7 +947,6 @@ function Simulaciones({ cfg, productos }) {
     optimista: { envio: Math.max(nz(cfg.costoEnvio) - 1500, 3000), tc: Math.min(nz(cfg.tasaConf) + 15, 95), te: Math.min(nz(cfg.tasaEnt) + 15, 95) },
   });
   const sp = (sc, k, v) => setParams(p => ({ ...p, [sc]: { ...p[sc], [k]: +v } }));
-
   const scMeta = { acido: { label: "😰 Caso Ácido", color: T.red, bg: T.redBg, desc: "Peor escenario realista" }, base: { label: "📊 Caso Base", color: T.accent, bg: T.accentL, desc: "Parámetros actuales" }, optimista: { label: "🚀 Caso Optimista", color: T.green, bg: T.greenBg, desc: "Escalando con mejoras" } };
 
   if (productos.length === 0) return <Card style={{ textAlign: "center", padding: 48 }}><div style={{ fontSize: 36 }}>🔮</div><div style={{ color: T.sub, marginTop: 12 }}>Primero agrega productos en "Mis Productos".</div></Card>;
@@ -1049,7 +989,6 @@ function Simulaciones({ cfg, productos }) {
           );
         })}
       </div>
-
       {productos.map(prod => (
         <Card key={prod.id}>
           <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 14 }}>
@@ -1091,7 +1030,6 @@ function Importar({ productos, setEntries }) {
   const [fecha, setFecha]             = useState(new Date().toISOString().slice(0,10));
   const [gastoAds, setGastoAds]       = useState("");
 
-  // ── Parse Dropi XLSX — detecta upsells por ID de orden ──
   const handleDropi = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1102,8 +1040,6 @@ function Importar({ productos, setEntries }) {
         const wb = XLSX.read(ev.target.result, { type: "array" });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-
-        // 1 — Agrupar por ID de orden para detectar combos/upsells
         const ordenes = {};
         rows.forEach(r => {
           const orderId = String(r["NUMERO DE PEDIDO DE TIENDA"] || r["ID"] || "").trim();
@@ -1111,59 +1047,31 @@ function Importar({ productos, setEntries }) {
           const status  = (r["ESTATUS"]  || "").trim();
           if (!orderId || !prod) return;
           if (!ordenes[orderId]) ordenes[orderId] = [];
-          ordenes[orderId].push({
-            prod, status,
-            precio : parseFloat(r["TOTAL DE LA ORDEN"] || 0),
-            flete  : parseFloat(r["PRECIO FLETE"]      || 0),
-            costo  : parseFloat(r["PRECIO PROVEEDOR"]  || 0),
-          });
+          ordenes[orderId].push({ prod, status, precio: parseFloat(r["TOTAL DE LA ORDEN"] || 0), flete: parseFloat(r["PRECIO FLETE"] || 0), costo: parseFloat(r["PRECIO PROVEEDOR"] || 0) });
         });
-
-        // 2 — Detectar el producto "principal" de cada orden (el de mayor precio)
-        //     y los upsells (los demás productos de la misma orden)
-        const byPrincipal = {}; // key = nombre producto principal
-
+        const byPrincipal = {};
         Object.values(ordenes).forEach(items => {
-          // Ordenar por precio desc → el más caro es el principal
           items.sort((a,b) => b.precio - a.precio);
           const principal = items[0];
           const upsells   = items.slice(1);
           const key = principal.prod;
-
-          if (!byPrincipal[key]) byPrincipal[key] = {
-            total:0, confirmados:0, entregados:0, devoluciones:0,
-            flete:0, costoPrincipal:0, ingresosPrincipal:0,
-            upsells: {}, // nombre → { ingresos, costo, count }
-          };
-
+          if (!byPrincipal[key]) byPrincipal[key] = { total:0, confirmados:0, entregados:0, devoluciones:0, flete:0, costoPrincipal:0, ingresosPrincipal:0, upsells:{} };
           const d = byPrincipal[key];
-          d.total++;
-          d.flete            += principal.flete;
-          d.costoPrincipal   += principal.costo;
-          d.ingresosPrincipal+= principal.precio;
+          d.total++; d.flete += principal.flete; d.costoPrincipal += principal.costo; d.ingresosPrincipal += principal.precio;
           if (CONF_ST.has(principal.status)) d.confirmados++;
           if (ENT_ST.has(principal.status))  d.entregados++;
           if (DEV_ST.has(principal.status))  d.devoluciones++;
-
-          // Acumular upsells
           upsells.forEach(u => {
             if (!d.upsells[u.prod]) d.upsells[u.prod] = { ingresos:0, costo:0, count:0 };
-            d.upsells[u.prod].ingresos += u.precio;
-            d.upsells[u.prod].costo    += u.costo;
-            d.upsells[u.prod].count++;
+            d.upsells[u.prod].ingresos += u.precio; d.upsells[u.prod].costo += u.costo; d.upsells[u.prod].count++;
           });
         });
-
         setDropiData(byPrincipal);
-      } catch(err) {
-        alert("Error leyendo el archivo Dropi. Asegúrate de subir el Excel (.xlsx)");
-        console.error(err);
-      }
+      } catch(err) { alert("Error leyendo el archivo Dropi."); console.error(err); }
     };
     reader.readAsArrayBuffer(file);
   };
 
-  // ── Parse Shopify CSV ──
   const handleShopify = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1176,19 +1084,13 @@ function Importar({ productos, setEntries }) {
         lines.slice(1).forEach(line => {
           const cols = []; let cur = "", inQ = false;
           for (const ch of line) {
-            if (ch === '"') { inQ = !inQ; }
-            else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ""; }
-            else cur += ch;
+            if (ch === '"') { inQ = !inQ; } else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ""; } else cur += ch;
           }
           cols.push(cur.trim());
           const r = {}; hdrs.forEach((h,i) => r[h] = cols[i] || "");
           const prod = (r["Título del producto"] || "").trim().toUpperCase();
           if (!prod) return;
-          byProd[prod] = {
-            pedidos  : parseInt(r["Pedidos"] || 0),
-            unidades : parseInt(r["Artículos netos vendidos"] || 0),
-            ventasNetas: parseInt((r["Ventas netas"] || "0").replace(/[^0-9-]/g,"")),
-          };
+          byProd[prod] = { pedidos: parseInt(r["Pedidos"] || 0), unidades: parseInt(r["Artículos netos vendidos"] || 0), ventasNetas: parseInt((r["Ventas netas"] || "0").replace(/[^0-9-]/g,"")) };
         });
         setShopifyData(byProd);
       } catch(err) { alert("Error leyendo el CSV de Shopify."); }
@@ -1196,70 +1098,24 @@ function Importar({ productos, setEntries }) {
     reader.readAsText(file, "utf-8");
   };
 
-  // ── Construir preview combinando Dropi + Shopify ──
   useEffect(() => {
     if (!dropiData) return;
     const rows = [];
     Object.entries(dropiData).forEach(([nombreDropi, d]) => {
-      // Coincidir con catálogo
-      const matched = productos.find(p =>
-        (p.nombre||"").toUpperCase().includes(nombreDropi.toUpperCase().slice(0,8)) ||
-        nombreDropi.toUpperCase().includes((p.nombre||"").toUpperCase().slice(0,8))
-      );
-      // Coincidir con Shopify
-      const shopKey = Object.keys(shopifyData||{}).find(k =>
-        k.includes(nombreDropi.toUpperCase().slice(0,8)) ||
-        nombreDropi.toUpperCase().includes(k.slice(0,8))
-      );
+      const matched = productos.find(p => (p.nombre||"").toUpperCase().includes(nombreDropi.toUpperCase().slice(0,8)) || nombreDropi.toUpperCase().includes((p.nombre||"").toUpperCase().slice(0,8)));
+      const shopKey = Object.keys(shopifyData||{}).find(k => k.includes(nombreDropi.toUpperCase().slice(0,8)) || nombreDropi.toUpperCase().includes(k.slice(0,8)));
       const sh = shopifyData?.[shopKey] || {};
-
-      // Calcular ingresos totales incluyendo upsells
       const ingresosUpsell = Object.values(d.upsells).reduce((s,u) => s + u.ingresos, 0);
       const costoUpsell    = Object.values(d.upsells).reduce((s,u) => s + u.costo, 0);
       const upsellNombres  = Object.keys(d.upsells);
-
-      rows.push({
-        nombreDropi,
-        productoId      : matched?.id || "",
-        productoNombre  : matched?.nombre || nombreDropi,
-        pedidosTotales  : d.total,
-        unidades        : sh.unidades || d.total,
-        confirmados     : d.confirmados,
-        entregados      : d.entregados,
-        devoluciones    : d.devoluciones,
-        ingresosPrincipal: d.ingresosPrincipal,
-        ingresosUpsell,
-        ingresosTotal   : d.ingresosPrincipal + ingresosUpsell,
-        costoProveedor  : d.costoPrincipal + costoUpsell,
-        costoFlete      : d.flete,
-        upsellNombres,
-        tieneUpsell     : upsellNombres.length > 0,
-        matched         : !!matched,
-      });
+      rows.push({ nombreDropi, productoId: matched?.id || "", productoNombre: matched?.nombre || nombreDropi, pedidosTotales: d.total, unidades: sh.unidades || d.total, confirmados: d.confirmados, entregados: d.entregados, devoluciones: d.devoluciones, ingresosPrincipal: d.ingresosPrincipal, ingresosUpsell, ingresosTotal: d.ingresosPrincipal + ingresosUpsell, costoProveedor: d.costoPrincipal + costoUpsell, costoFlete: d.flete, upsellNombres, tieneUpsell: upsellNombres.length > 0, matched: !!matched });
     });
     setPreview(rows);
   }, [dropiData, shopifyData, productos]);
 
   const importAll = () => {
     setImporting(true);
-    const nuevos = preview.map(r => ({
-      id: Date.now() + Math.random(),
-      fecha,
-      productoId      : r.productoId,
-      plataforma      : "Meta",
-      gastoAds        : gastoAds || "",
-      pedidosTotales  : String(r.pedidosTotales),
-      unidades        : String(r.unidades),
-      confirmados     : String(r.confirmados),
-      entregados      : String(r.entregados),
-      devoluciones    : String(r.devoluciones),
-      ventasFacturadas: String(Math.round(r.ingresosTotal)),
-      diasCampana:"", cpm:"", cpc:"", ctr:"",
-      checklist:{},
-      // Guardar info upsell para referencia
-      upsellNombres   : r.upsellNombres,
-      ingresosUpsell  : r.ingresosUpsell,
-    }));
+    const nuevos = preview.map(r => ({ id: Date.now() + Math.random(), fecha, productoId: r.productoId, plataforma: "Meta", gastoAds: gastoAds || "", pedidosTotales: String(r.pedidosTotales), unidades: String(r.unidades), confirmados: String(r.confirmados), entregados: String(r.entregados), devoluciones: String(r.devoluciones), ventasFacturadas: String(Math.round(r.ingresosTotal)), diasCampana:"", cpm:"", cpc:"", ctr:"", checklist:{}, upsellNombres: r.upsellNombres, ingresosUpsell: r.ingresosUpsell }));
     setEntries(e => [...e, ...nuevos]);
     setImporting(false);
     setDone(true);
@@ -1290,8 +1146,7 @@ function Importar({ productos, setEntries }) {
         <div style={{ display:"grid", gridTemplateColumns:"200px 1fr", gap:14, marginBottom:20 }}>
           <div>
             <Label>📅 Fecha del reporte</Label>
-            <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
-              style={{ width:"100%", background:T.inputBg, border:`1.5px solid ${T.border}`, borderRadius:8, padding:"9px 12px", color:T.text, fontSize:14, fontFamily:"inherit", outline:"none" }} />
+            <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={{ width:"100%", background:T.inputBg, border:`1.5px solid ${T.border}`, borderRadius:8, padding:"9px 12px", color:T.text, fontSize:14, fontFamily:"inherit", outline:"none" }} />
           </div>
           <Inp label="💸 Gasto Total en Ads del período (CLP)" value={gastoAds} onChange={setGastoAds} placeholder="Ej: 79212" hint="Se asigna al producto principal con ads" />
         </div>
@@ -1309,77 +1164,34 @@ function Importar({ productos, setEntries }) {
                 Vista previa — {preview.length} producto{preview.length>1?"s":""} detectado{preview.length>1?"s":""}
                 {preview.some(r=>r.tieneUpsell) && <span style={{ marginLeft:10, background:T.accentL, color:T.accent, borderRadius:6, padding:"2px 8px", fontSize:12, fontWeight:700 }}>🎁 Upsells detectados</span>}
               </div>
-              <div style={{ fontSize:12, color:T.sub, marginTop:2 }}>Los ingresos de upsells ya están sumados al producto principal</div>
             </div>
             <Btn onClick={importAll}>{importing ? "Importando..." : "✅ Importar todo"}</Btn>
           </div>
           <div style={{ overflowX:"auto" }}>
             <table style={{ width:"100%", borderCollapse:"collapse" }}>
-              <thead><tr>
-                <TH>Producto Principal</TH><TH>Catálogo</TH><TH>Tipo</TH>
-                <TH>Pedidos</TH><TH>Conf.</TH><TH>Entregados</TH><TH>Devoluciones</TH>
-                <TH>Ing. Principal</TH><TH>Ing. Upsell</TH><TH>Ing. Total</TH><TH>Costo Prov.</TH>
-              </tr></thead>
+              <thead><tr><TH>Producto Principal</TH><TH>Catálogo</TH><TH>Tipo</TH><TH>Pedidos</TH><TH>Conf.</TH><TH>Entregados</TH><TH>Devoluciones</TH><TH>Ing. Principal</TH><TH>Ing. Upsell</TH><TH>Ing. Total</TH><TH>Costo Prov.</TH></tr></thead>
               <tbody>
                 {preview.map((r,i) => (
                   <tr key={i} style={{ background: i%2===0 ? T.white : T.bg }}>
                     <td style={{ padding:"10px 14px", borderBottom:`1px solid ${T.border}` }}>
                       <div style={{ fontWeight:700, color:T.text, fontSize:13 }}>{r.nombreDropi}</div>
-                      {r.tieneUpsell && (
-                        <div style={{ fontSize:11, color:T.accent, marginTop:3 }}>
-                          🎁 Upsell: {r.upsellNombres.join(", ")}
-                        </div>
-                      )}
+                      {r.tieneUpsell && <div style={{ fontSize:11, color:T.accent, marginTop:3 }}>🎁 Upsell: {r.upsellNombres.join(", ")}</div>}
                     </td>
                     <td style={{ padding:"10px 14px", borderBottom:`1px solid ${T.border}` }}>
-                      {r.matched
-                        ? <span style={{ background:T.greenBg, color:T.green, borderRadius:6, padding:"2px 8px", fontSize:12, fontWeight:700 }}>✓ {r.productoNombre}</span>
-                        : <span style={{ background:T.yellowBg, color:T.yellow, borderRadius:6, padding:"2px 8px", fontSize:12, fontWeight:700 }}>⚠ Sin coincidir</span>
-                      }
+                      {r.matched ? <span style={{ background:T.greenBg, color:T.green, borderRadius:6, padding:"2px 8px", fontSize:12, fontWeight:700 }}>✓ {r.productoNombre}</span> : <span style={{ background:T.yellowBg, color:T.yellow, borderRadius:6, padding:"2px 8px", fontSize:12, fontWeight:700 }}>⚠ Sin coincidir</span>}
                     </td>
                     <td style={{ padding:"10px 14px", borderBottom:`1px solid ${T.border}` }}>
-                      {r.tieneUpsell
-                        ? <span style={{ background:T.accentL, color:T.accent, borderRadius:6, padding:"2px 8px", fontSize:12, fontWeight:700 }}>Combo + Upsell</span>
-                        : <span style={{ background:T.bg, color:T.sub, borderRadius:6, padding:"2px 8px", fontSize:12 }}>Solo</span>
-                      }
+                      {r.tieneUpsell ? <span style={{ background:T.accentL, color:T.accent, borderRadius:6, padding:"2px 8px", fontSize:12, fontWeight:700 }}>Combo + Upsell</span> : <span style={{ background:T.bg, color:T.sub, borderRadius:6, padding:"2px 8px", fontSize:12 }}>Solo</span>}
                     </td>
-                    <TD>{r.pedidosTotales}</TD>
-                    <TD color={T.accent}>{r.confirmados}</TD>
-                    <TD color={T.green} bold>{r.entregados}</TD>
+                    <TD>{r.pedidosTotales}</TD><TD color={T.accent}>{r.confirmados}</TD><TD color={T.green} bold>{r.entregados}</TD>
                     <TD color={r.devoluciones>0 ? T.red : T.sub}>{r.devoluciones}</TD>
                     <TD>{clp(r.ingresosPrincipal)}</TD>
                     <TD color={r.ingresosUpsell>0 ? T.accent : T.sub}>{r.ingresosUpsell>0 ? clp(r.ingresosUpsell) : "—"}</TD>
-                    <TD color={T.green} bold>{clp(r.ingresosTotal)}</TD>
-                    <TD color={T.red}>{clp(r.costoProveedor)}</TD>
+                    <TD color={T.green} bold>{clp(r.ingresosTotal)}</TD><TD color={T.red}>{clp(r.costoProveedor)}</TD>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-          {preview.some(r => !r.matched) && (
-            <div style={{ padding:"12px 20px", background:T.yellowBg, borderTop:`1px solid ${T.border}`, fontSize:13, color:T.yellow, fontWeight:600 }}>
-              ⚠️ Algunos productos no coinciden con tu catálogo. Ve a "Mis Productos" y verifica que los nombres sean similares a los de Dropi.
-            </div>
-          )}
-        </Card>
-      )}
-
-      {!dropiData && !shopifyData && (
-        <Card style={{ background:T.bg }}>
-          <div style={{ fontWeight:700, fontSize:13, color:T.text, marginBottom:12 }}>📋 ¿Cómo obtener los archivos?</div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, fontSize:13, color:T.sub, lineHeight:1.8 }}>
-            <div>
-              <div style={{ fontWeight:700, color:T.text, marginBottom:6 }}>📦 Excel de Dropi</div>
-              1. Entra a tu panel de Dropi<br/>
-              2. Ve a Órdenes → Reporte de Productos<br/>
-              3. Filtra por fecha y descarga el Excel (.xlsx)
-            </div>
-            <div>
-              <div style={{ fontWeight:700, color:T.text, marginBottom:6 }}>🛍️ CSV de Shopify</div>
-              1. Entra a tu panel de Shopify<br/>
-              2. Ve a Informes → Ventas por producto<br/>
-              3. Selecciona el rango de fechas y exporta el CSV
-            </div>
           </div>
         </Card>
       )}
@@ -1387,8 +1199,8 @@ function Importar({ productos, setEntries }) {
   );
 }
 
-// ─── ANÁLISIS DE CAMPAÑAS ─────────────────────────────────────────────────────
-function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }) {
+// ─── CAMPAÑAS ─────────────────────────────────────────────────────────────────
+function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange: globalDateRange }) {
   const EMPTY = { plataforma:"Meta", nombre:"", gastado:"", compras:"", clics:"", roas:"", ctr:"", cpm:"", cpc:"", productoId:"", periodo:"" };
   const [campanas, setCampanas]   = useState(savedCampanas || []);
   const [plat, setPlat]           = useState("Todos");
@@ -1396,6 +1208,8 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
   const [form, setForm]           = useState(EMPTY);
   const [editIdx, setEditIdx]     = useState(null);
   const [showForm, setShowForm]   = useState(false);
+  // 🆕 Rango de fechas propio de Campañas con calendario
+  const [localRange, setLocalRange] = useState({ from: "", to: "" });
 
   useEffect(() => { setSavedCampanas(campanas); }, [campanas]);
 
@@ -1404,7 +1218,7 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
     const c = {
       plataforma : form.plataforma,
       nombre     : form.nombre.trim(),
-      periodo    : form.periodo || dateRange?.from || "",
+      periodo    : form.periodo || "",
       estado     : "active",
       gastado    : parseFloat(String(form.gastado).replace(/[$.]/g,"").replace(",",".")) || 0,
       compras    : parseFloat(form.compras) || 0,
@@ -1426,27 +1240,27 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
     setShowForm(false);
   };
 
-  const editar = (idx) => {
-    const c = campanas[idx];
-    setForm({ ...c, gastado: c.gastado, compras: c.compras, clics: c.clics });
-    setEditIdx(idx);
-    setShowForm(true);
-    window.scrollTo({top:0,behavior:"smooth"});
-  };
+  const editar = (idx) => { const c = campanas[idx]; setForm({ ...c, gastado: c.gastado, compras: c.compras, clics: c.clics }); setEditIdx(idx); setShowForm(true); window.scrollTo({top:0,behavior:"smooth"}); };
+  const eliminar = (idx) => { if (!confirm("¿Eliminar esta campaña?")) return; setCampanas(prev => prev.filter((_,i)=>i!==idx)); };
 
-  const eliminar = (idx) => {
-    if (!confirm("¿Eliminar esta campaña?")) return;
-    setCampanas(prev => prev.filter((_,i)=>i!==idx));
-  };
+  // Filtrar campañas por rango de fechas local (basado en campo "periodo")
+  const campanasFiltradas = useMemo(() => {
+    if (!localRange.from && !localRange.to) return campanas;
+    return campanas.filter(c => {
+      if (!c.periodo) return true;
+      // El periodo puede ser texto libre o fecha
+      const fechaC = c.periodo.slice(0, 10);
+      return (!localRange.from || fechaC >= localRange.from) && (!localRange.to || fechaC <= localRange.to);
+    });
+  }, [campanas, localRange]);
 
-  // ── Enriquecer cada campaña con datos del catálogo ──
-  const enriquecidas = campanas.map((c) => {
+  // Enriquecer campañas
+  const enriquecidas = campanasFiltradas.map((c) => {
     const prod = (c.productoId ? productos.find(p=>p.id===c.productoId) : null)
       || productos.find(p => {
         const np = (p.nombre||"").toUpperCase();
         const nc = (c.nombre||"").toUpperCase();
-        return np.split(" ").filter(w=>w.length>3).some(w=>nc.includes(w)) ||
-               nc.split(/[\s-]+/).filter(w=>w.length>3).some(w=>np.includes(w));
+        return np.split(" ").filter(w=>w.length>3).some(w=>nc.includes(w)) || nc.split(/[\s-]+/).filter(w=>w.length>3).some(w=>np.includes(w));
       }) || null;
 
     const costeo = prod ? calcCosteo(prod, cfg) : null;
@@ -1462,43 +1276,21 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
 
     let decision, razon, urgencia = 0;
     if (c.compras === 0 && c.gastado > 8000) {
-      decision = "pausar"; urgencia = 3;
-      razon = `Gastaste ${clp(c.gastado)} sin ninguna compra. No hay señal de mercado.`;
+      decision = "pausar"; urgencia = 3; razon = `Gastaste ${clp(c.gastado)} sin ninguna compra.`;
     } else if (c.compras === 0 && c.gastado <= 8000) {
-      decision = "revisar"; urgencia = 1;
-      razon = "Poco gasto y sin compras aún. Dale más presupuesto o revisa el creativo.";
+      decision = "revisar"; urgencia = 1; razon = "Poco gasto y sin compras aún.";
     } else if (beroas !== null && roasEfectivo > 0) {
-      const esEst = c.roas === 0;
-      const tag = esEst ? " (est.)" : "";
-      if (roasEfectivo >= beroas * 1.4) {
-        decision = "escalar"; urgencia = 0;
-        razon = `ROAS ${roasEfectivo.toFixed(1)}x${tag} vs BEROAS ${beroas.toFixed(1)}x — ${((roasEfectivo/beroas-1)*100).toFixed(0)}% sobre el break-even. Sube el presupuesto.`;
-      } else if (roasEfectivo >= beroas) {
-        decision = "mantener"; urgencia = 1;
-        razon = `ROAS ${roasEfectivo.toFixed(1)}x${tag} — rentable pero en el límite. Optimiza antes de escalar.`;
-      } else if (roasEfectivo >= beroas * 0.7) {
-        decision = "optimizar"; urgencia = 2;
-        razon = `ROAS ${roasEfectivo.toFixed(1)}x${tag}, necesitas ${beroas.toFixed(1)}x para cubrir costos.`;
-      } else {
-        decision = "pausar"; urgencia = 3;
-        razon = `ROAS ${roasEfectivo.toFixed(1)}x${tag} muy bajo vs BEROAS ${beroas.toFixed(1)}x. Estás perdiendo dinero.`;
-      }
-    } else if (roasEfectivo >= 5) {
-      decision = "escalar"; urgencia = 0;
-      razon = `ROAS ${roasEfectivo.toFixed(1)}x excelente. Asigna el producto para confirmar.`;
-    } else if (roasEfectivo >= 3) {
-      decision = "mantener"; urgencia = 1;
-      razon = `ROAS ${roasEfectivo.toFixed(1)}x parece sano. Asigna producto para decisión exacta.`;
-    } else if (roasEfectivo > 0) {
-      decision = "optimizar"; urgencia = 2;
-      razon = `ROAS ${roasEfectivo.toFixed(1)}x bajo. Asigna el producto para ver si es rentable.`;
-    } else {
-      decision = "sin_datos"; urgencia = 0;
-      razon = "Asigna el producto para ver la rentabilidad real.";
-    }
+      const esEst = c.roas === 0; const tag = esEst ? " (est.)" : "";
+      if (roasEfectivo >= beroas * 1.4) { decision = "escalar"; urgencia = 0; razon = `ROAS ${roasEfectivo.toFixed(1)}x${tag} vs BEROAS ${beroas.toFixed(1)}x — ${((roasEfectivo/beroas-1)*100).toFixed(0)}% sobre el break-even.`; }
+      else if (roasEfectivo >= beroas) { decision = "mantener"; urgencia = 1; razon = `ROAS ${roasEfectivo.toFixed(1)}x${tag} — rentable pero en el límite.`; }
+      else if (roasEfectivo >= beroas * 0.7) { decision = "optimizar"; urgencia = 2; razon = `ROAS ${roasEfectivo.toFixed(1)}x${tag}, necesitas ${beroas.toFixed(1)}x.`; }
+      else { decision = "pausar"; urgencia = 3; razon = `ROAS ${roasEfectivo.toFixed(1)}x${tag} muy bajo vs BEROAS ${beroas.toFixed(1)}x.`; }
+    } else if (roasEfectivo >= 5) { decision = "escalar"; urgencia = 0; razon = `ROAS ${roasEfectivo.toFixed(1)}x excelente.`; }
+    else if (roasEfectivo >= 3) { decision = "mantener"; urgencia = 1; razon = `ROAS ${roasEfectivo.toFixed(1)}x parece sano.`; }
+    else if (roasEfectivo > 0) { decision = "optimizar"; urgencia = 2; razon = `ROAS ${roasEfectivo.toFixed(1)}x bajo.`; }
+    else { decision = "sin_datos"; urgencia = 0; razon = "Asigna el producto para ver la rentabilidad real."; }
 
-    const gananciaEst = (prod && utilUnit != null) ? c.compras * utilUnit - c.gastado : null;
-    return { ...c, prod, beroas, cpaMax, utilUnit, roasEfectivo, decision, razon, urgencia, gananciaEst };
+    return { ...c, prod, beroas, cpaMax, utilUnit, roasEfectivo, decision, razon, urgencia };
   });
 
   const platFiltradas = plat==="Todos" ? enriquecidas : enriquecidas.filter(c=>c.plataforma===plat);
@@ -1509,8 +1301,10 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
     return 0;
   });
 
+  // 🆕 KPIs incluyendo CPA
   const totalGastado = platFiltradas.reduce((s,c)=>s+c.gastado,0);
   const totalCompras = platFiltradas.reduce((s,c)=>s+c.compras,0);
+  const cpaTotalAds  = totalCompras > 0 ? totalGastado / totalCompras : null;  // 🆕 CPA = gasto / compras
   const roasProm     = platFiltradas.filter(c=>c.roasEfectivo>0).length
     ? platFiltradas.filter(c=>c.roasEfectivo>0).reduce((s,c)=>s+c.roasEfectivo,0)/platFiltradas.filter(c=>c.roasEfectivo>0).length : 0;
   const nEscalar = platFiltradas.filter(c=>c.decision==="escalar").length;
@@ -1544,7 +1338,15 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
   return (
     <div style={{ display:"grid", gap:20 }}>
 
-      {/* Botón agregar + form */}
+      {/* 🆕 Selector de fechas con calendario */}
+      <DateRangePicker
+        from={localRange.from}
+        to={localRange.to}
+        onChange={setLocalRange}
+        label="Filtrar por período:"
+      />
+
+      {/* Form nueva campaña */}
       <Card>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: showForm?16:0 }}>
           <SectionTitle icon="📡" title="Campañas de Ads" sub="Ingresa los datos de cada campaña manualmente" />
@@ -1556,13 +1358,15 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
 
         {showForm && (
           <div style={{ borderTop:`1px solid ${T.border}`, paddingTop:16 }}>
-            <div style={{ fontWeight:700, fontSize:14, color:T.text, marginBottom:14 }}>
-              {editIdx!==null ? "✏️ Editar campaña" : "➕ Nueva campaña"}
-            </div>
+            <div style={{ fontWeight:700, fontSize:14, color:T.text, marginBottom:14 }}>{editIdx!==null ? "✏️ Editar campaña" : "➕ Nueva campaña"}</div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:12 }}>
               {inp("Plataforma", "plataforma", { type:"select", options:[["Meta","🔵 Meta"],["TikTok","🎵 TikTok"]] })}
               {inp("Nombre campaña", "nombre", { placeholder:"Ej: Maquina bolsas - 26-02" })}
-              {inp("Período / Fecha", "periodo", { placeholder:"Ej: 2026-01-01 → 2026-03-05" })}
+              <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                <label style={{ fontSize:11, fontWeight:700, color:T.sub, textTransform:"uppercase" }}>📅 Fecha / Período</label>
+                <input type="date" value={form.periodo} onChange={e=>setForm(f=>({...f,periodo:e.target.value}))}
+                  style={{ padding:"8px 10px", borderRadius:8, border:`1.5px solid ${T.border}`, fontSize:13, background:T.inputBg, fontFamily:"inherit", outline:"none", cursor:"pointer" }} />
+              </div>
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:12 }}>
               {inp("Gastado ($)", "gastado", { placeholder:"104460", type:"number" })}
@@ -1583,14 +1387,10 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
               </div>
             </div>
             <div style={{ display:"flex", gap:10 }}>
-              <button onClick={guardar}
-                style={{ padding:"10px 24px", borderRadius:10, background:T.accent, color:T.white, fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+              <button onClick={guardar} style={{ padding:"10px 24px", borderRadius:10, background:T.accent, color:T.white, fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
                 {editIdx!==null ? "💾 Guardar cambios" : "✅ Agregar campaña"}
               </button>
-              <button onClick={()=>{ setShowForm(false); setEditIdx(null); setForm(EMPTY); }}
-                style={{ padding:"10px 18px", borderRadius:10, background:T.border, color:T.text, fontWeight:600, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
-                Cancelar
-              </button>
+              <button onClick={()=>{ setShowForm(false); setEditIdx(null); setForm(EMPTY); }} style={{ padding:"10px 18px", borderRadius:10, background:T.border, color:T.text, fontWeight:600, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Cancelar</button>
             </div>
           </div>
         )}
@@ -1600,24 +1400,27 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
         <div style={{ background:T.accentL, borderRadius:12, padding:"20px 24px", textAlign:"center" }}>
           <div style={{ fontSize:32, marginBottom:8 }}>📊</div>
           <div style={{ fontWeight:700, fontSize:15, color:T.accent, marginBottom:6 }}>Sin campañas aún</div>
-          <div style={{ fontSize:13, color:T.sub }}>Haz click en "+ Nueva campaña" para ingresar los datos de tus ads manualmente.</div>
+          <div style={{ fontSize:13, color:T.sub }}>Haz click en "+ Nueva campaña" para ingresar los datos.</div>
         </div>
       )}
 
       {campanas.length > 0 && (<>
 
-        {/* KPIs */}
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:12 }}>
+        {/* 🆕 KPIs con CPA incluido */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:12 }}>
           {[
-            { label:"Total en Ads", value:clp(totalGastado), color:T.text },
-            { label:"Compras Totales", value:totalCompras.toFixed(0), color:T.accent },
-            { label:"ROAS Promedio", value:x2(roasProm), color:roasProm>=4?T.green:roasProm>=2?T.yellow:T.red },
-            { label:"🚀 Para Escalar", value:nEscalar, color:T.green },
-            { label:"⏸ Para Pausar", value:nPausar, color:T.red },
-          ].map(({label,value,color})=>(
-            <div key={label} style={{ background:T.white, borderRadius:12, padding:"14px 16px", boxShadow:T.shadow }}>
-              <div style={{ fontSize:11, color:T.sub, fontWeight:700, marginBottom:4, textTransform:"uppercase" }}>{label}</div>
-              <div style={{ fontSize:22, fontWeight:900, color }}>{value}</div>
+            { label:"Total en Ads", value:clp(totalGastado), color:T.text, bg:T.bg, icon:"📣" },
+            { label:"Compras Totales", value:totalCompras.toFixed(0), color:T.accent, bg:T.accentL, icon:"🛒" },
+            // 🆕 KPI CPA
+            { label:"CPA Promedio", value:cpaTotalAds ? clp(cpaTotalAds) : "—", color: cpaTotalAds && cpaTotalAds < 15000 ? T.green : T.orange, bg: cpaTotalAds && cpaTotalAds < 15000 ? T.greenBg : T.orangeBg, icon:"🎯" },
+            { label:"ROAS Promedio", value:x2(roasProm), color:roasProm>=4?T.green:roasProm>=2?T.yellow:T.red, bg:roasProm>=4?T.greenBg:roasProm>=2?T.yellowBg:T.redBg, icon:"⚡" },
+            { label:"🚀 Para Escalar", value:nEscalar, color:T.green, bg:T.greenBg, icon:"🚀" },
+            { label:"⏸ Para Pausar", value:nPausar, color:T.red, bg:T.redBg, icon:"⏸" },
+          ].map(({label,value,color,bg,icon})=>(
+            <div key={label} style={{ background:T.white, borderRadius:12, padding:"14px 16px", boxShadow:T.shadow, borderTop:`3px solid ${color}` }}>
+              <div style={{ fontSize:16, marginBottom:4 }}>{icon}</div>
+              <div style={{ fontSize:10, color:T.sub, fontWeight:700, marginBottom:4, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
+              <div style={{ fontSize:20, fontWeight:900, color }}>{value}</div>
             </div>
           ))}
         </div>
@@ -1635,8 +1438,8 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
                     <div style={{ fontSize:12, color:T.sub, marginTop:2 }}>{c.razon}</div>
                   </div>
                   <div style={{ textAlign:"right", flexShrink:0 }}>
-                    <div style={{ fontSize:11, color:T.sub }}>Gastado</div>
-                    <div style={{ fontWeight:800, color:T.text }}>{clp(c.gastado)}</div>
+                    <div style={{ fontSize:11, color:T.sub }}>CPA</div>
+                    <div style={{ fontWeight:800, color:T.text }}>{c.cpa > 0 ? clp(c.cpa) : "—"}</div>
                   </div>
                 </div>
               ))}
@@ -1648,8 +1451,8 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
                     <div style={{ fontSize:12, color:T.sub, marginTop:2 }}>{c.razon}</div>
                   </div>
                   <div style={{ textAlign:"right", flexShrink:0 }}>
-                    <div style={{ fontSize:11, color:T.sub }}>Gastado sin retorno</div>
-                    <div style={{ fontWeight:800, color:T.red }}>{clp(c.gastado)}</div>
+                    <div style={{ fontSize:11, color:T.sub }}>CPA</div>
+                    <div style={{ fontWeight:800, color:T.red }}>{c.cpa > 0 ? clp(c.cpa) : clp(c.gastado)}</div>
                   </div>
                 </div>
               ))}
@@ -1672,14 +1475,14 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
           </div>
         </div>
 
-        {/* Tabla */}
+        {/* Tabla campañas */}
         <Card style={{ padding:0, overflow:"hidden" }}>
           <div style={{ overflowX:"auto" }}>
             <table style={{ width:"100%", borderCollapse:"collapse", minWidth:900 }}>
               <thead>
                 <tr style={{ background:T.bg }}>
-                  <TH>Campaña</TH><TH>Plataforma</TH><TH>Período</TH><TH>Gastado</TH>
-                  <TH>Compras</TH><TH>ROAS</TH><TH>BEROAS</TH><TH>CPA Real</TH>
+                  <TH>Campaña</TH><TH>Plataforma</TH><TH>Fecha</TH><TH>Gastado</TH>
+                  <TH>Compras</TH><TH>CPA</TH><TH>ROAS</TH><TH>BEROAS</TH>
                   <TH>CPA Máx.</TH><TH>CTR</TH><TH>Decisión</TH><TH>Acciones</TH>
                 </tr>
               </thead>
@@ -1688,6 +1491,8 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
                   const D = DECISION[c.decision];
                   const roasOk = c.beroas ? c.roasEfectivo >= c.beroas : c.roasEfectivo >= 3;
                   const origIdx = campanas.findIndex(x=>x.nombre===c.nombre&&x.gastado===c.gastado);
+                  // Color CPA vs CPA máximo
+                  const cpaOk = c.cpaMax && c.cpa > 0 ? c.cpa <= c.cpaMax : null;
                   return (
                     <tr key={i} style={{ background:i%2===0?T.white:T.bg, borderBottom:`1px solid ${T.border}` }}>
                       <td style={{ padding:"12px 14px", maxWidth:200 }}>
@@ -1699,9 +1504,24 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
                           {c.plataforma==="Meta"?"🔵 Meta":"🎵 TikTok"}
                         </span>
                       </TD>
-                      <td style={{ padding:"12px 14px", fontSize:12, color:T.sub }}>{c.periodo}</td>
+                      <td style={{ padding:"12px 14px", fontSize:12, color:T.sub }}>{c.periodo || "—"}</td>
                       <TD bold>{clp(c.gastado)}</TD>
                       <TD color={c.compras>0?T.text:T.sub}>{c.compras||"—"}</TD>
+                      {/* 🆕 CPA con color según CPA máximo */}
+                      <td style={{ padding:"12px 14px" }}>
+                        {c.cpa > 0 ? (
+                          <div>
+                            <span style={{ fontWeight:800, fontSize:14, color: cpaOk === true ? T.green : cpaOk === false ? T.red : T.orange }}>
+                              {clp(c.cpa)}
+                            </span>
+                            {c.cpaMax > 0 && (
+                              <div style={{ fontSize:10, color:T.sub, marginTop:2 }}>
+                                {cpaOk ? "✓ bajo el máx." : "✗ sobre el máx."}
+                              </div>
+                            )}
+                          </div>
+                        ) : <span style={{ color:T.sub }}>—</span>}
+                      </td>
                       <td style={{ padding:"12px 14px" }}>
                         <span style={{ fontWeight:800, fontSize:14, color:roasOk?T.green:c.roasEfectivo>0?T.red:T.sub }}>
                           {c.roasEfectivo>0?<>{x2(c.roasEfectivo)}{c.roas===0&&c.roasEfectivo>0&&<span style={{fontSize:9,color:T.sub}}> est.</span>}</>:"—"}
@@ -1710,7 +1530,6 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
                       <td style={{ padding:"12px 14px" }}>
                         {c.beroas?<span style={{ fontWeight:700, color:T.accent }}>{x2(c.beroas)}</span>:<span style={{ color:T.sub }}>—</span>}
                       </td>
-                      <TD color={c.cpaMax&&c.cpa>c.cpaMax?T.red:T.text}>{c.cpa>0?clp(c.cpa):"—"}</TD>
                       <TD color={T.green}>{c.cpaMax?clp(c.cpaMax):"—"}</TD>
                       <td style={{ padding:"12px 14px", fontSize:13, color:T.sub }}>{c.ctr>0?`${c.ctr.toFixed(2)}%`:"—"}</td>
                       <td style={{ padding:"12px 14px" }}>
@@ -1736,7 +1555,7 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
           <div style={{ fontWeight:800, fontSize:13, color:T.accent, marginBottom:8 }}>📚 ¿Por qué no miramos solo el CPA?</div>
           <div style={{ fontSize:13, color:T.text, lineHeight:1.8 }}>
             El CPA mide cuánto pagaste por cada compra en ads — pero no te dice si fuiste rentable. Una campaña con CPA de $18.000 puede ser <strong>excelente</strong> si tu producto tiene margen para absorberlo, o una campaña con CPA de $4.000 puede ser <strong>ruinosa</strong> si tu margen neto es de $3.000.<br/><br/>
-            Lo que importa: <strong>ROAS ≥ BEROAS</strong>. Si tu ROAS supera el break-even, estás ganando. Si no, estás financiando ventas con pérdida.
+            Lo que importa: <strong>ROAS ≥ BEROAS</strong> y <strong>CPA ≤ CPA Máximo</strong>. Si ambos se cumplen, estás ganando.
           </div>
         </Card>
 
@@ -1745,52 +1564,72 @@ function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }
   );
 }
 
-
 // ─── PRODUCTOS POR DEFECTO ────────────────────────────────────────────────────
+// ✅ FIX: Campo renombrado de "costoProducto" → "costoUnitario" para que calcCosteo lo lea correctamente
 const DEFAULT_PRODUCTOS = [
-  { id:"p1",  nombre:"Cepillo Alisador",         precioVenta:23990, costoProducto:2700, costoEnvio:7000, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"",    proveedor:"" },
-  { id:"p2",  nombre:"Lima Pies",                precioVenta:23990, costoProducto:4900, costoEnvio:6200, cpaEstimado:7445,  tasaConf:100,tasaEnt:100,idDropi:"10431",proveedor:"" },
-  { id:"p3",  nombre:"Picatodo",                 precioVenta:27990, costoProducto:7500, costoEnvio:6200, cpaEstimado:8000,  tasaConf:75, tasaEnt:75, idDropi:"",    proveedor:"" },
-  { id:"p4",  nombre:"Masajeador Facial",        precioVenta:24990, costoProducto:11000,costoEnvio:6200, cpaEstimado:8000,  tasaConf:75, tasaEnt:75, idDropi:"24036",proveedor:"Liquidambar" },
-  { id:"p5",  nombre:"Balsamo Facial",           precioVenta:10990, costoProducto:3200, costoEnvio:6200, cpaEstimado:8000,  tasaConf:75, tasaEnt:75, idDropi:"91556",proveedor:"Importadora Oferfly" },
-  { id:"p6",  nombre:"Removedor Callos 2",       precioVenta:23990, costoProducto:4500, costoEnvio:6200, cpaEstimado:4604,  tasaConf:100,tasaEnt:100,idDropi:"10431",proveedor:"RVG sp" },
-  { id:"p7",  nombre:"Almohadilla Colicos",      precioVenta:24990, costoProducto:5990, costoEnvio:6200, cpaEstimado:8000,  tasaConf:100,tasaEnt:100,idDropi:"",    proveedor:"" },
-  { id:"p8",  nombre:"Removedor Callos 1",       precioVenta:26990, costoProducto:4900, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"10431",proveedor:"RVG sp" },
-  { id:"p9",  nombre:"Cuadernos Montessori",     precioVenta:28990, costoProducto:2600, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"",    proveedor:"" },
-  { id:"p10", nombre:"Guantes Mascotas",         precioVenta:23990, costoProducto:1800, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"",    proveedor:"" },
-  { id:"p11", nombre:"Cepillo Vapor",            precioVenta:14990, costoProducto:0,    costoEnvio:0,    cpaEstimado:0,     tasaConf:75, tasaEnt:75, idDropi:"",    proveedor:"" },
-  { id:"p12", nombre:"Soporte Celular",          precioVenta:25990, costoProducto:3800, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"78330",proveedor:"Meibo" },
-  { id:"p13", nombre:"Desinfectante Dientes UV", precioVenta:26990, costoProducto:4990, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"75492",proveedor:"Anacaona spa" },
-  { id:"p14", nombre:"Basurero Portatil",        precioVenta:24990, costoProducto:3500, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"40206",proveedor:"Meibo" },
-  { id:"p15", nombre:"Secador Zapatos",          precioVenta:30990, costoProducto:6900, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"56094",proveedor:"Meibo" },
-  { id:"p16", nombre:"Levanta Muebles",          precioVenta:24990, costoProducto:3500, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"27261",proveedor:"Meibo" },
-  { id:"p17", nombre:"Selladora Al Vacio",       precioVenta:29990, costoProducto:5800, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"48988",proveedor:"Meibo" },
-  { id:"p18", nombre:"Bolsas Selladora",         precioVenta:15990, costoProducto:2800, costoEnvio:7500, cpaEstimado:5000,  tasaConf:75, tasaEnt:75, idDropi:"88817",proveedor:"Las Dalias" },
+  { id:"p1",  nombre:"Cepillo Alisador",         precioVenta:23990, costoUnitario:2700,  costoEnvio:7000, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"",      proveedor:"" },
+  { id:"p2",  nombre:"Lima Pies",                precioVenta:23990, costoUnitario:4900,  costoEnvio:6200, cpaEstimado:7445,  tasaConf:100, tasaEnt:100, pedidosDiarios:1, pct2daUnidad:10, idDropi:"10431", proveedor:"" },
+  { id:"p3",  nombre:"Picatodo",                 precioVenta:27990, costoUnitario:7500,  costoEnvio:6200, cpaEstimado:8000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"",      proveedor:"" },
+  { id:"p4",  nombre:"Masajeador Facial",        precioVenta:24990, costoUnitario:11000, costoEnvio:6200, cpaEstimado:8000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"24036", proveedor:"Liquidambar" },
+  { id:"p5",  nombre:"Balsamo Facial",           precioVenta:10990, costoUnitario:3200,  costoEnvio:6200, cpaEstimado:8000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"91556", proveedor:"Importadora Oferfly" },
+  { id:"p6",  nombre:"Removedor Callos 2",       precioVenta:23990, costoUnitario:4500,  costoEnvio:6200, cpaEstimado:4604,  tasaConf:100, tasaEnt:100, pedidosDiarios:1, pct2daUnidad:10, idDropi:"10431", proveedor:"RVG sp" },
+  { id:"p7",  nombre:"Almohadilla Colicos",      precioVenta:28990, costoUnitario:4990,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:70,  tasaEnt:70,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"98717", proveedor:"Vida y Hogar spa" },
+  { id:"p8",  nombre:"Removedor Callos 1",       precioVenta:26990, costoUnitario:4900,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"10431", proveedor:"RVG sp" },
+  { id:"p9",  nombre:"Cuadernos Montessori",     precioVenta:28990, costoUnitario:2600,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"",      proveedor:"" },
+  { id:"p10", nombre:"Guantes Mascotas",         precioVenta:23990, costoUnitario:1800,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"",      proveedor:"" },
+  { id:"p11", nombre:"Cepillo Vapor",            precioVenta:14990, costoUnitario:3500,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"",      proveedor:"" },
+  { id:"p12", nombre:"Soporte Celular",          precioVenta:25990, costoUnitario:3800,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"78330", proveedor:"Meibo" },
+  { id:"p13", nombre:"Desinfectante Dientes UV", precioVenta:26990, costoUnitario:4990,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"75492", proveedor:"Anacaona spa" },
+  { id:"p14", nombre:"Basurero Portatil",        precioVenta:24990, costoUnitario:3500,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"40206", proveedor:"Meibo" },
+  { id:"p15", nombre:"Secador Zapatos",          precioVenta:30990, costoUnitario:6900,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"56094", proveedor:"Meibo" },
+  { id:"p16", nombre:"Levanta Muebles",          precioVenta:24990, costoUnitario:3500,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"27261", proveedor:"Meibo" },
+  { id:"p17", nombre:"Selladora Al Vacio",       precioVenta:29990, costoUnitario:5800,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"48988", proveedor:"Meibo" },
+  { id:"p18", nombre:"Bolsas Selladora",         precioVenta:15990, costoUnitario:2800,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"88817", proveedor:"Las Dalias" },
 ];
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 const NAV = [
-  ["campanas",   "📡", "Campañas Ads"],
-  ["calculadora","🧮", "Calculadora"],
-  ["productos",  "📦", "Mis Productos"],
-  ["registro",   "➕", "Registro Diario"],
-  ["importar",   "📥", "Importar Datos"],
-  ["dashboard",  "📊", "Dashboard"],
-  ["simulaciones","🔮","Simulaciones"],
+  ["campanas",    "📡", "Campañas Ads"],
+  ["calculadora", "🧮", "Calculadora"],
+  ["productos",   "📦", "Mis Productos"],
+  ["registro",    "➕", "Registro Diario"],
+  ["importar",    "📥", "Importar Datos"],
+  ["dashboard",   "📊", "Dashboard"],
+  ["simulaciones","🔮", "Simulaciones"],
 ];
 
 export default function App() {
   const stored = hydrate();
   const [page, setPage]           = useState("campanas");
   const [cfg, setCfg]             = useState(stored.cfg || GCFG);
-  const [productos, setProductos] = useState(stored.productos?.length > 0 ? stored.productos : DEFAULT_PRODUCTOS);
+
+  // ✅ Si hay productos guardados en localStorage los usa, si no usa DEFAULT_PRODUCTOS con costoUnitario correcto
+  const [productos, setProductos] = useState(() => {
+    if (stored.productos?.length > 0) {
+      // Migrar productos antiguos que usen "costoProducto" en lugar de "costoUnitario"
+      return stored.productos.map(p => ({
+        ...p,
+        costoUnitario: p.costoUnitario ?? p.costoProducto ?? 0,
+      }));
+    }
+    return DEFAULT_PRODUCTOS;
+  });
+
   const [entries, setEntries]     = useState(stored.entries || []);
   const [savedCampanas, setSavedCampanas] = useState(stored.campanas || []);
   const [dateRange, setDateRange] = useState(stored.dateRange || { from: hace30(), to: hoy() });
 
   useEffect(() => persist({ cfg, productos, entries, campanas: savedCampanas, dateRange }), [cfg, productos, entries, savedCampanas, dateRange]);
 
-  const headers = { campanas: ["Campañas Ads","Rentabilidad real — qué escalar y qué pausar basado en ROAS vs BEROAS"], calculadora: ["Calculadora de Precios","Costeo completo con análisis de 2ª unidad, BEROAS y ganancia proyectada"], productos: ["Mis Productos","Catálogo con costeo, antecedentes y links de anuncios"], registro: ["Registro Diario","Testeos con métricas de ads + checklist de calidad"], importar: ["Importar Datos","Sube el Excel de Dropi y CSV de Shopify — detecta combos y upsells"], dashboard: ["Dashboard","Análisis de rentabilidad, gráficos y resumen por producto"], simulaciones: ["Simulaciones","Proyecta rentabilidad en escenario ácido, base y optimista"] };
+  const headers = {
+    campanas:    ["Campañas Ads",       "Rentabilidad real — qué escalar y qué pausar basado en ROAS vs BEROAS"],
+    calculadora: ["Calculadora",        "Costeo completo con análisis de 2ª unidad, BEROAS y ganancia proyectada"],
+    productos:   ["Mis Productos",      "Catálogo con costeo, antecedentes y links de anuncios"],
+    registro:    ["Registro Diario",    "Testeos con métricas de ads + checklist de calidad"],
+    importar:    ["Importar Datos",     "Sube el Excel de Dropi y CSV de Shopify — detecta combos y upsells"],
+    dashboard:   ["Dashboard",          "Análisis de rentabilidad, gráficos y resumen por producto"],
+    simulaciones:["Simulaciones",       "Proyecta rentabilidad en escenario ácido, base y optimista"],
+  };
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: T.bg, fontFamily: "'Nunito', 'Sora', 'Segoe UI', sans-serif" }}>
@@ -1846,13 +1685,13 @@ export default function App() {
           </div>
         </div>
         <div style={{ padding: 26 }}>
-          {page === "campanas"     && <Campanas productos={productos} cfg={cfg} savedCampanas={savedCampanas} setSavedCampanas={setSavedCampanas} dateRange={dateRange} />}
-          {page === "calculadora"  && <Calculadora cfg={cfg} setCfg={setCfg} productos={productos} />}
-          {page === "productos"    && <MisProductos productos={productos} setProductos={setProductos} cfg={cfg} />}
-          {page === "registro"     && <Registro entries={entries} setEntries={setEntries} productos={productos} cfg={cfg} dateRange={dateRange} />}
-          {page === "importar"     && <Importar productos={productos} setEntries={setEntries} entries={entries} />}
-          {page === "dashboard"    && <Dashboard entries={entries} productos={productos} cfg={cfg} dateRange={dateRange} />}
-          {page === "simulaciones" && <Simulaciones cfg={cfg} productos={productos} />}
+          {page === "campanas"      && <Campanas productos={productos} cfg={cfg} savedCampanas={savedCampanas} setSavedCampanas={setSavedCampanas} dateRange={dateRange} />}
+          {page === "calculadora"   && <Calculadora cfg={cfg} setCfg={setCfg} productos={productos} />}
+          {page === "productos"     && <MisProductos productos={productos} setProductos={setProductos} cfg={cfg} />}
+          {page === "registro"      && <Registro entries={entries} setEntries={setEntries} productos={productos} cfg={cfg} dateRange={dateRange} />}
+          {page === "importar"      && <Importar productos={productos} setEntries={setEntries} entries={entries} />}
+          {page === "dashboard"     && <Dashboard entries={entries} productos={productos} cfg={cfg} dateRange={dateRange} />}
+          {page === "simulaciones"  && <Simulaciones cfg={cfg} productos={productos} />}
         </div>
       </div>
     </div>
