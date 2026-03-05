@@ -5,6 +5,9 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 const SK = "drofitv3";
 const persist = (d) => { try { localStorage.setItem(SK, JSON.stringify(d)); } catch {} };
 const hydrate = () => { try { return JSON.parse(localStorage.getItem(SK)) || {}; } catch { return {}; } };
+// Fecha helpers
+const hoy = () => new Date().toISOString().slice(0,10);
+const hace30 = () => { const d = new Date(); d.setDate(d.getDate()-30); return d.toISOString().slice(0,10); };
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const T = {
@@ -648,7 +651,11 @@ function MisProductos({ productos, setProductos, cfg }) {
 }
 
 // ─── REGISTRO ────────────────────────────────────────────────────────────────
-function Registro({ entries, setEntries, productos, cfg }) {
+function Registro({ entries, setEntries, productos, cfg, dateRange }) {
+  const entriesFiltradas = useMemo(() => {
+    if (!dateRange?.from && !dateRange?.to) return entries;
+    return entries.filter(e => (!dateRange.from || e.fecha >= dateRange.from) && (!dateRange.to || e.fecha <= dateRange.to));
+  }, [entries, dateRange]);
   const [form, setForm] = useState({ ...EENTRY, fecha: new Date().toISOString().slice(0, 10) });
   const [checklist, setChecklist] = useState({});
   const [editIdx, setEditIdx] = useState(null);
@@ -824,7 +831,15 @@ function Registro({ entries, setEntries, productos, cfg }) {
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({ entries, productos, cfg }) {
+function Dashboard({ entries, productos, cfg, dateRange }) {
+  // Filtrar entries por rango de fechas
+  const entriesFiltradas = useMemo(() => {
+    if (!dateRange?.from && !dateRange?.to) return entries;
+    return entries.filter(e => {
+      if (!e.fecha) return true;
+      return (!dateRange.from || e.fecha >= dateRange.from) && (!dateRange.to || e.fecha <= dateRange.to);
+    });
+  }, [entries, dateRange]);
   const [tab, setTab] = useState("general");
   const [prodFil, setProdFil] = useState("todos");
 
@@ -1373,11 +1388,13 @@ function Importar({ productos, setEntries }) {
 }
 
 // ─── ANÁLISIS DE CAMPAÑAS ─────────────────────────────────────────────────────
-function Campanas({ productos, cfg }) {
-  const [campanas, setCampanas] = useState([]);
+function Campanas({ productos, cfg, savedCampanas, setSavedCampanas, dateRange }) {
+  const [campanas, setCampanas] = useState(savedCampanas || []);
   const [plat, setPlat]         = useState("Todos");
   const [sort, setSort]         = useState("rentabilidad");
-  const [prodOverrides, setProdOverrides] = useState({}); // campañaIndex → productoId
+  const [prodOverrides, setProdOverrides] = useState({});
+  // Persistir campanas cuando cambian
+  useEffect(() => { if(campanas.length > 0) setSavedCampanas(campanas); }, [campanas]);
 
   const handleMeta = (e) => {
     const file = e.target.files[0]; if (!file) return;
@@ -1641,6 +1658,13 @@ function Campanas({ productos, cfg }) {
           {dropZone("🔵 Meta Ads — CSV", "🔵", handleMeta, campanas.some(c=>c.plataforma==="Meta"))}
           {dropZone("🎵 TikTok Ads — CSV o Excel", "🎵", handleTikTok, campanas.some(c=>c.plataforma==="TikTok"))}
         </div>
+        {campanas.length > 0 && (
+          <div style={{ marginTop:12, display:"flex", alignItems:"center", gap:8, fontSize:12, color:T.sub }}>
+            <span>📅 Mostrando datos del período:</span>
+            <span style={{ fontWeight:700, color:T.accent }}>{dateRange?.from} → {dateRange?.to}</span>
+            <span style={{ color:T.sub }}>· Última carga guardada automáticamente</span>
+          </div>
+        </div>
         {campanas.length===0 && (
           <div style={{ background:T.accentL, borderRadius:10, padding:"12px 16px", fontSize:13, color:T.accent, fontWeight:600 }}>
             💡 La app cruza tus campañas con el costeo de tus productos para decirte si eres rentable — no si el CPA es bajo. Un CPA alto puede estar bien si el margen lo aguanta.
@@ -1818,12 +1842,14 @@ const NAV = [
 
 export default function App() {
   const stored = hydrate();
-  const [page, setPage] = useState("campanas");
-  const [cfg, setCfg] = useState(stored.cfg || GCFG);
+  const [page, setPage]           = useState("campanas");
+  const [cfg, setCfg]             = useState(stored.cfg || GCFG);
   const [productos, setProductos] = useState(stored.productos || []);
-  const [entries, setEntries] = useState(stored.entries || []);
+  const [entries, setEntries]     = useState(stored.entries || []);
+  const [savedCampanas, setSavedCampanas] = useState(stored.campanas || []);
+  const [dateRange, setDateRange] = useState(stored.dateRange || { from: hace30(), to: hoy() });
 
-  useEffect(() => persist({ cfg, productos, entries }), [cfg, productos, entries]);
+  useEffect(() => persist({ cfg, productos, entries, campanas: savedCampanas, dateRange }), [cfg, productos, entries, savedCampanas, dateRange]);
 
   const headers = { campanas: ["Campañas Ads","Rentabilidad real — qué escalar y qué pausar basado en ROAS vs BEROAS"], calculadora: ["Calculadora de Precios","Costeo completo con análisis de 2ª unidad, BEROAS y ganancia proyectada"], productos: ["Mis Productos","Catálogo con costeo, antecedentes y links de anuncios"], registro: ["Registro Diario","Testeos con métricas de ads + checklist de calidad"], importar: ["Importar Datos","Sube el Excel de Dropi y CSV de Shopify — detecta combos y upsells"], dashboard: ["Dashboard","Análisis de rentabilidad, gráficos y resumen por producto"], simulaciones: ["Simulaciones","Proyecta rentabilidad en escenario ácido, base y optimista"] };
 
@@ -1864,17 +1890,29 @@ export default function App() {
 
       {/* Main */}
       <div style={{ flex: 1, overflow: "auto" }}>
-        <div style={{ background: T.white, borderBottom: `1px solid ${T.border}`, padding: "18px 30px", position: "sticky", top: 0, zIndex: 10 }}>
-          <div style={{ fontWeight: 900, fontSize: 21, color: T.text, letterSpacing: "-0.03em" }}>{headers[page][0]}</div>
-          <div style={{ fontSize: 13, color: T.sub, marginTop: 2 }}>{headers[page][1]}</div>
+        <div style={{ background: T.white, borderBottom: `1px solid ${T.border}`, padding: "14px 30px", position: "sticky", top: 0, zIndex: 10, display:"flex", alignItems:"center", justifyContent:"space-between", gap:16 }}>
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 21, color: T.text, letterSpacing: "-0.03em" }}>{headers[page][0]}</div>
+            <div style={{ fontSize: 13, color: T.sub, marginTop: 2 }}>{headers[page][1]}</div>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+            <span style={{ fontSize:12, color:T.sub, fontWeight:700 }}>📅</span>
+            <input type="date" value={dateRange.from} onChange={e=>setDateRange(r=>({...r,from:e.target.value}))}
+              style={{ fontSize:12, padding:"6px 10px", border:`1.5px solid ${T.border}`, borderRadius:8, color:T.text, background:T.inputBg, fontFamily:"inherit", outline:"none" }} />
+            <span style={{ fontSize:12, color:T.sub }}>→</span>
+            <input type="date" value={dateRange.to} onChange={e=>setDateRange(r=>({...r,to:e.target.value}))}
+              style={{ fontSize:12, padding:"6px 10px", border:`1.5px solid ${T.border}`, borderRadius:8, color:T.text, background:T.inputBg, fontFamily:"inherit", outline:"none" }} />
+            <button onClick={()=>setDateRange({from:hace30(),to:hoy()})}
+              style={{ fontSize:11, padding:"6px 10px", border:`1.5px solid ${T.border}`, borderRadius:8, color:T.sub, background:T.white, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>Últimos 30d</button>
+          </div>
         </div>
         <div style={{ padding: 26 }}>
-          {page === "campanas"     && <Campanas productos={productos} cfg={cfg} />}
+          {page === "campanas"     && <Campanas productos={productos} cfg={cfg} savedCampanas={savedCampanas} setSavedCampanas={setSavedCampanas} dateRange={dateRange} />}
           {page === "calculadora"  && <Calculadora cfg={cfg} setCfg={setCfg} productos={productos} />}
           {page === "productos"    && <MisProductos productos={productos} setProductos={setProductos} cfg={cfg} />}
-          {page === "registro"     && <Registro entries={entries} setEntries={setEntries} productos={productos} cfg={cfg} />}
+          {page === "registro"     && <Registro entries={entries} setEntries={setEntries} productos={productos} cfg={cfg} dateRange={dateRange} />}
           {page === "importar"     && <Importar productos={productos} setEntries={setEntries} entries={entries} />}
-          {page === "dashboard"    && <Dashboard entries={entries} productos={productos} cfg={cfg} />}
+          {page === "dashboard"    && <Dashboard entries={entries} productos={productos} cfg={cfg} dateRange={dateRange} />}
           {page === "simulaciones" && <Simulaciones cfg={cfg} productos={productos} />}
         </div>
       </div>
