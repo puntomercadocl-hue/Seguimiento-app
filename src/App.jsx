@@ -990,13 +990,21 @@ function Dashboard({ entries, productos, cfg, dateRange }) {
 
 // ─── SIMULACIONES ─────────────────────────────────────────────────────────────
 function Simulaciones({ cfg, productos }) {
+  const [modo, setModo] = useState("tasas"); // "tasas" | "cpa"
+  const [tooltip, setTooltip] = useState(null);
   const [params, setParams] = useState({
-    acido: { envio: nz(cfg.costoEnvio), tc: Math.max(nz(cfg.tasaConf) - 20, 30), te: Math.max(nz(cfg.tasaEnt) - 20, 30) },
-    base: { envio: nz(cfg.costoEnvio), tc: nz(cfg.tasaConf), te: nz(cfg.tasaEnt) },
-    optimista: { envio: Math.max(nz(cfg.costoEnvio) - 1500, 3000), tc: Math.min(nz(cfg.tasaConf) + 15, 95), te: Math.min(nz(cfg.tasaEnt) + 15, 95) },
+    acido:    { envio: nz(cfg.costoEnvio), tc: Math.max(nz(cfg.tasaConf) - 20, 30), te: Math.max(nz(cfg.tasaEnt) - 20, 30) },
+    base:     { envio: nz(cfg.costoEnvio), tc: nz(cfg.tasaConf), te: nz(cfg.tasaEnt) },
+    optimista:{ envio: Math.max(nz(cfg.costoEnvio) - 1500, 3000), tc: Math.min(nz(cfg.tasaConf) + 15, 95), te: Math.min(nz(cfg.tasaEnt) + 15, 95) },
   });
+  // Modo CPA: simulador de CPA real por producto
+  const [cpaInputs, setCpaInputs] = useState({});
   const sp = (sc, k, v) => setParams(p => ({ ...p, [sc]: { ...p[sc], [k]: +v } }));
-  const scMeta = { acido: { label: "😰 Caso Ácido", color: T.red, bg: T.redBg, desc: "Peor escenario realista" }, base: { label: "📊 Caso Base", color: T.accent, bg: T.accentL, desc: "Parámetros actuales" }, optimista: { label: "🚀 Caso Optimista", color: T.green, bg: T.greenBg, desc: "Escalando con mejoras" } };
+  const scMeta = {
+    acido:    { label: "😰 Caso Ácido",    color: T.red,    bg: T.redBg,   desc: "Peor escenario realista" },
+    base:     { label: "📊 Caso Base",     color: T.accent, bg: T.accentL, desc: "Parámetros actuales" },
+    optimista:{ label: "🚀 Caso Optimista",color: T.green,  bg: T.greenBg, desc: "Escalando con mejoras" },
+  };
 
   if (productos.length === 0) return <Card style={{ textAlign: "center", padding: 48 }}><div style={{ fontSize: 36 }}>🔮</div><div style={{ color: T.sub, marginTop: 12 }}>Primero agrega productos en "Mis Productos".</div></Card>;
 
@@ -1013,54 +1021,158 @@ function Simulaciones({ cfg, productos }) {
     return { ingR, costoR, cpaMax, beroas, util, margen: ingR > 0 ? util / ingR : null };
   };
 
+  const calcCpaSim = (prod, cpaReal) => {
+    const pv = nz(prod.precioVenta), cu = nz(prod.costoUnitario);
+    const tc = nz(prod.tasaConf || cfg.tasaConf) / 100;
+    const te = nz(prod.tasaEnt  || cfg.tasaEnt)  / 100;
+    const env = nz(prod.costoEnvio || cfg.costoEnvio);
+    const realEnt = tc * te;
+    const ingR   = pv * realEnt;
+    const costoR = cu * realEnt + env * tc;
+    const cpaMax = ingR - costoR;
+    const util   = ingR - costoR - cpaReal;
+    const margen = ingR > 0 ? util / ingR : null;
+    return { ingR, costoR, cpaMax, util, margen, gana: cpaReal <= cpaMax };
+  };
+
+  const MODOS = [
+    { id: "tasas", icon: "📊", label: "Por Tasas de Entrega", tooltip: "Simula qué pasa si tus tasas de confirmación y entrega suben o bajan.
+
+😰 Ácido = pocas personas confirman y reciben (tasas bajas)
+📊 Base = tus tasas normales actuales
+🚀 Optimista = todo sale perfecto (tasas altas)
+
+Úsalo para: evaluar si el producto es viable antes de lanzarlo." },
+    { id: "cpa",   icon: "🎯", label: "Por CPA Real de Ads",  tooltip: "Ingresa cuánto te costó realmente cada venta (CPA Real) y te dice si ganaste o perdiste plata.
+
+😰 Ácido = el anuncio anda mal, CPA alto
+📊 Base = rendimiento normal
+🚀 Optimista = el anuncio anda excelente, CPA bajo
+
+Úsalo para: analizar si una campaña activa es rentable." },
+  ];
+
   return (
     <div style={{ display: "grid", gap: 20 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
-        {["acido","base","optimista"].map(sc => {
-          const m = scMeta[sc]; const p = params[sc];
-          return (
-            <Card key={sc} style={{ border: `1.5px solid ${m.color}40` }}>
-              <div style={{ fontWeight: 800, fontSize: 15, color: m.color, marginBottom: 4 }}>{m.label}</div>
-              <div style={{ fontSize: 12, color: T.sub, marginBottom: 14 }}>{m.desc}</div>
-              {sc !== "base" ? (
-                <div style={{ display: "grid", gap: 10 }}>
-                  <Inp label="Costo de Envío (CLP)" value={p.envio} onChange={v => sp(sc, "envio", v)} />
-                  <InpPct label="% Confirmación" value={p.tc} onChange={v => sp(sc, "tc", v)} />
-                  <InpPct label="% Entrega" value={p.te} onChange={v => sp(sc, "te", v)} />
-                </div>
-              ) : (
-                <div style={{ background: m.bg, borderRadius: 8, padding: 12, fontSize: 12, color: T.sub }}>
-                  Usa parámetros de cada producto.<br />
-                  Global: Envío {clp(cfg.costoEnvio)} · TC {cfg.tasaConf}% · TE {cfg.tasaEnt}%
+
+      {/* Switch de modo */}
+      <Card style={{ padding: "16px 20px" }}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: T.text, marginBottom: 12 }}>¿Qué quieres simular?</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          {MODOS.map(m => (
+            <div key={m.id} style={{ position: "relative" }}>
+              <button onClick={() => setModo(m.id)}
+                style={{ padding: "10px 18px", borderRadius: 10, border: `2px solid ${modo === m.id ? T.accent : T.border}`, background: modo === m.id ? T.accentL : T.white, color: modo === m.id ? T.accent : T.sub, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>{m.icon}</span> {m.label}
+                <span onMouseEnter={() => setTooltip(m.id)} onMouseLeave={() => setTooltip(null)}
+                  style={{ marginLeft: 4, width: 16, height: 16, borderRadius: "50%", background: T.border, color: T.sub, fontSize: 10, fontWeight: 900, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "help" }}>?</span>
+              </button>
+              {tooltip === m.id && (
+                <div style={{ position: "absolute", top: "110%", left: 0, zIndex: 100, background: T.text, color: "#fff", borderRadius: 10, padding: "12px 16px", fontSize: 12, lineHeight: 1.6, width: 280, whiteSpace: "pre-line", boxShadow: "0 4px 20px rgba(0,0,0,0.2)" }}>
+                  {m.tooltip}
                 </div>
               )}
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* ── MODO TASAS ── */}
+      {modo === "tasas" && (<>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+          {["acido","base","optimista"].map(sc => {
+            const m = scMeta[sc]; const p = params[sc];
+            return (
+              <Card key={sc} style={{ border: `1.5px solid ${m.color}40` }}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: m.color, marginBottom: 4 }}>{m.label}</div>
+                <div style={{ fontSize: 12, color: T.sub, marginBottom: 14 }}>{m.desc}</div>
+                {sc !== "base" ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <Inp label="Costo de Envío (CLP)" value={p.envio} onChange={v => sp(sc, "envio", v)} />
+                    <InpPct label="% Confirmación" value={p.tc} onChange={v => sp(sc, "tc", v)} />
+                    <InpPct label="% Entrega" value={p.te} onChange={v => sp(sc, "te", v)} />
+                  </div>
+                ) : (
+                  <div style={{ background: m.bg, borderRadius: 8, padding: 12, fontSize: 12, color: T.sub }}>
+                    Usa parámetros de cada producto.<br />
+                    Global: Envío {clp(cfg.costoEnvio)} · TC {cfg.tasaConf}% · TE {cfg.tasaEnt}%
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+        {productos.map(prod => (
+          <Card key={prod.id}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 14 }}>
+              📦 {prod.nombre} <span style={{ fontSize: 12, color: T.sub, fontWeight: 400 }}>— {clp(nz(prod.precioVenta))} · Costo {clp(nz(prod.costoUnitario))}</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+              {["acido","base","optimista"].map(sc => {
+                const m = scMeta[sc]; const r = calcSim(prod, sc);
+                return (
+                  <div key={sc} style={{ background: m.bg, borderRadius: 10, padding: 14, border: `1px solid ${m.color}30` }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: m.color, marginBottom: 10 }}>{m.label}</div>
+                    {[["Ingreso Real/pedido", clp(r.ingR)], ["Costo Real/pedido", clp(r.costoR)], ["CPA Máximo", clp(r.cpaMax), r.cpaMax > 0 ? T.green : T.red], ["Utilidad Unit.", clp(r.util), r.util >= 0 ? T.green : T.red], ["Márgen", pct(r.margen), r.margen >= 0 ? T.green : T.red], ["BEROAS", x2(r.beroas), m.color]].map(([l, v, c]) => (
+                      <div key={l} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                        <span style={{ color: T.sub }}>{l}</span>
+                        <strong style={{ color: c || T.text }}>{v}</strong>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        ))}
+      </>)}
+
+      {/* ── MODO CPA ── */}
+      {modo === "cpa" && (<>
+        <div style={{ background: T.accentL, borderRadius: 12, padding: "14px 18px", fontSize: 13, color: T.accent, fontWeight: 600, border: `1.5px solid ${T.accent}30` }}>
+          💡 Ingresa el CPA Real de tu campaña (cuánto pagaste por cada venta) y te digo si estás ganando o perdiendo plata con ese producto.
+        </div>
+        {productos.map(prod => {
+          const cpaReal = nz(cpaInputs[prod.id]);
+          const r = cpaReal > 0 ? calcCpaSim(prod, cpaReal) : null;
+          const scenarioLabel = r ? (cpaReal <= calcCpaSim(prod, 0).cpaMax * 0.5 ? "🚀 Excelente — puedes escalar" : cpaReal <= calcCpaSim(prod, 0).cpaMax ? "✅ Rentable — sigue adelante" : "❌ Pérdida — revisa el anuncio") : null;
+          const scenarioColor = r ? (r.gana ? (cpaReal <= calcCpaSim(prod, 0).cpaMax * 0.5 ? T.green : T.accent) : T.red) : T.sub;
+          return (
+            <Card key={prod.id}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>
+                📦 {prod.nombre}
+              </div>
+              <div style={{ fontSize: 12, color: T.sub, marginBottom: 16 }}>{clp(nz(prod.precioVenta))} · Costo {clp(nz(prod.costoUnitario))} · CPA Máximo: <strong style={{ color: T.accent }}>{clp(calcCpaSim(prod, 0).cpaMax)}</strong></div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 16, alignItems: "start" }}>
+                <div>
+                  <Label>🎯 Tu CPA Real de esta campaña</Label>
+                  <input type="number" placeholder="Ej: 5000" value={cpaInputs[prod.id] || ""}
+                    onChange={e => setCpaInputs(p => ({ ...p, [prod.id]: e.target.value }))}
+                    style={{ width: "100%", boxSizing: "border-box", background: T.inputBg, border: `2px solid ${r ? (r.gana ? T.green : T.red) : T.border}`, borderRadius: 8, padding: "10px 14px", color: T.text, fontSize: 16, fontFamily: "inherit", outline: "none", fontWeight: 700 }} />
+                  {r && <div style={{ marginTop: 8, fontWeight: 800, fontSize: 14, color: scenarioColor }}>{scenarioLabel}</div>}
+                </div>
+
+                {r && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+                    {[
+                      ["Ingreso Real", clp(r.ingR), T.green, T.greenBg],
+                      ["Costos", clp(r.costoR), T.red, T.redBg],
+                      ["Utilidad", clp(r.util), r.util >= 0 ? T.green : T.red, r.util >= 0 ? T.greenBg : T.redBg],
+                      ["Rentabilidad", pct(r.margen), r.margen >= 0 ? T.green : T.red, r.margen >= 0 ? T.greenBg : T.redBg],
+                    ].map(([l, v, c, bg]) => (
+                      <div key={l} style={{ background: bg, borderRadius: 10, padding: "10px 14px" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: T.sub, textTransform: "uppercase", marginBottom: 4 }}>{l}</div>
+                        <div style={{ fontSize: 17, fontWeight: 900, color: c }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </Card>
           );
         })}
-      </div>
-      {productos.map(prod => (
-        <Card key={prod.id}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 14 }}>
-            📦 {prod.nombre} <span style={{ fontSize: 12, color: T.sub, fontWeight: 400 }}>— {clp(nz(prod.precioVenta))} · Costo {clp(nz(prod.costoUnitario))}</span>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-            {["acido","base","optimista"].map(sc => {
-              const m = scMeta[sc]; const r = calcSim(prod, sc);
-              return (
-                <div key={sc} style={{ background: m.bg, borderRadius: 10, padding: 14, border: `1px solid ${m.color}30` }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: m.color, marginBottom: 10 }}>{m.label}</div>
-                  {[["Ingreso Real/pedido", clp(r.ingR)], ["Costo Real/pedido", clp(r.costoR)], ["CPA Máximo", clp(r.cpaMax), r.cpaMax > 0 ? T.green : T.red], ["Utilidad Unit.", clp(r.util), r.util >= 0 ? T.green : T.red], ["Márgen", pct(r.margen), r.margen >= 0 ? T.green : T.red], ["BEROAS", x2(r.beroas), m.color]].map(([l, v, c]) => (
-                    <div key={l} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
-                      <span style={{ color: T.sub }}>{l}</span>
-                      <strong style={{ color: c || T.text }}>{v}</strong>
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      ))}
+      </>)}
     </div>
   );
 }
