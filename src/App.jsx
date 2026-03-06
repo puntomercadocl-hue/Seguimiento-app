@@ -1076,18 +1076,11 @@ function Simulaciones({ cfg, productos }) {
               <Card key={sc} style={{ border: `1.5px solid ${m.color}40` }}>
                 <div style={{ fontWeight: 800, fontSize: 15, color: m.color, marginBottom: 4 }}>{m.label}</div>
                 <div style={{ fontSize: 12, color: T.sub, marginBottom: 14 }}>{m.desc}</div>
-                {sc !== "base" ? (
-                  <div style={{ display: "grid", gap: 10 }}>
-                    <Inp label="Costo de Envío (CLP)" value={p.envio} onChange={v => sp(sc, "envio", v)} />
-                    <InpPct label="% Confirmación" value={p.tc} onChange={v => sp(sc, "tc", v)} />
-                    <InpPct label="% Entrega" value={p.te} onChange={v => sp(sc, "te", v)} />
-                  </div>
-                ) : (
-                  <div style={{ background: m.bg, borderRadius: 8, padding: 12, fontSize: 12, color: T.sub }}>
-                    Usa parámetros de cada producto.<br />
-                    Global: Envío {clp(cfg.costoEnvio)} · TC {cfg.tasaConf}% · TE {cfg.tasaEnt}%
-                  </div>
-                )}
+                <div style={{ display: "grid", gap: 10 }}>
+                  <Inp label="Costo de Envío (CLP)" value={p.envio} onChange={v => sp(sc, "envio", v)} />
+                  <InpPct label="% Confirmación" value={p.tc} onChange={v => sp(sc, "tc", v)} />
+                  <InpPct label="% Entrega" value={p.te} onChange={v => sp(sc, "te", v)} />
+                </div>
               </Card>
             );
           })}
