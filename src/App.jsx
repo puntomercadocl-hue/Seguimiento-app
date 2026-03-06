@@ -608,19 +608,23 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
   const s = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const selProd = productos.find(p => String(p.id) === String(form.productoId));
 
-  // Lógica igual a Drofit: ingresos reales = precio × unidades; ads separado de costos
-  const pedidos     = nz(form.pedidosCaptados);
-  const unidades    = nz(form.unidadesVendidas);
-  const gastoAds    = nz(form.gastoAds);
-  const tc          = nz(selProd?.tasaConf || cfg.tasaConf) / 100;
-  const confirmados = Math.round(pedidos * tc);
-  const ingReales   = nz(selProd?.precioVenta) * unidades;       // precio × unidades (Drofit)
-  const costosProd  = nz(selProd?.costoUnitario) * unidades;
-  const costosEnv   = nz(selProd?.costoEnvio || cfg.costoEnvio) * confirmados;
-  const costosTot   = costosProd + costosEnv;                    // sin ads (Drofit)
-  const utilidad    = ingReales - costosTot - gastoAds;          // util = ing - costos - ads
-  const cpaReal     = unidades > 0 ? gastoAds / unidades : null;
-  const rent        = ingReales > 0 ? utilidad / ingReales : null;
+  // Fórmula Drofit: ingReales = ventasFacturadas × TC × TE
+  const pedidos       = nz(form.pedidosCaptados);
+  const gastoAds      = nz(form.gastoAds);
+  const ventasTot     = nz(form.ingresosTotales);
+  const tc            = nz(selProd?.tasaConf || cfg.tasaConf) / 100;
+  const te            = nz(selProd?.tasaEnt  || cfg.tasaEnt)  / 100;
+  const entFloat      = pedidos * tc * te;                       // float para CPA
+  const confFloat     = pedidos * tc;
+  const confirmados   = Math.round(confFloat);
+  const entregados    = Math.round(entFloat);
+  const ingReales     = ventasTot * tc * te;                     // Drofit: ingresos_tot × TC × TE
+  const costosProd    = nz(selProd?.costoUnitario) * entFloat;
+  const costosEnv     = nz(selProd?.costoEnvio || cfg.costoEnvio) * confFloat;
+  const costosTot     = costosProd + costosEnv;                  // sin ads (Drofit)
+  const utilidad      = ingReales - costosTot - gastoAds;
+  const cpaReal       = entFloat > 0 ? gastoAds / entFloat : null;
+  const rent          = ingReales > 0 ? utilidad / ingReales : null;
 
   const save = () => {
     if (!form.fecha || !form.productoId) return;
@@ -633,7 +637,7 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
       ventasFacturadas: nz(form.ingresosTotales),
       gastoAds: nz(form.gastoAds),
       confirmados,
-      entregados: nz(form.unidadesVendidas),
+      entregados,
       plataforma: "Meta",
     };
     if (editId) setEntries(e => e.map(x => x.id === editId ? entry : x));
@@ -692,14 +696,14 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
             {[
               ["Pedidos Captados",   pedidos,         null,                       "#ede9ff"],
-              ["Unidades Vendidas",   unidades,        T.green,                    T.greenBg],
+              ["Confirmados (est.)",  confirmados,     null,                       T.yellowBg],
+              ["Entregados (est.)",   entregados,      T.green,                    T.greenBg],
+              ["Ingresos Totales",    clp(ventasTot),  null,                       T.bg],
               ["Ingresos Reales",     clp(ingReales),  T.green,                    T.greenBg],
               ["Costos Totales",      clp(costosTot),  T.red,                      T.redBg],
               ["Gasto en Anuncios",   clp(gastoAds),   T.red,                      T.redBg],
               ["Utilidad Total",      clp(utilidad),   utilidad>=0?T.green:T.red,  utilidad>=0?T.greenBg:T.redBg],
               ["CPA Real",            clp(cpaReal),    null,                       T.yellowBg],
-              ["Rentabilidad %",      pct(rent),       rent>=0?T.green:T.red,      rent>=0?T.greenBg:T.redBg],
-              ["ROAS",                gastoAds>0?x2(ingReales/gastoAds):"—", T.accent, T.accentL],
             ].map(([l, v, c, bg]) => (
               <div key={l} style={{ background: bg||T.white, borderRadius: 10, padding: "12px 14px" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase", marginBottom: 4 }}>{l}</div>
@@ -725,16 +729,21 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
                 {[...entries].reverse().map((e, ri) => {
                   const prod = productos.find(p => String(p.id) === String(e.productoId));
                   const _tc   = nz(prod?.tasaConf || cfg.tasaConf) / 100;
-                  const _conf = e.confirmados ?? Math.round(nz(e.pedidosTotales) * _tc);
-                  const _ent  = nz(e.unidades);
-                  const _ing  = nz(prod?.precioVenta) * _ent;
-                  const _cp   = nz(prod?.costoUnitario) * _ent;
-                  const _env  = nz(prod?.costoEnvio || cfg.costoEnvio) * _conf;
+                  const _te   = nz(prod?.tasaEnt  || cfg.tasaEnt)  / 100;
+                  const _ped  = nz(e.pedidosTotales);
+                  const _entF = _ped * _tc * _te;
+                  const _cfF  = _ped * _tc;
+                  const _ent  = Math.round(_entF);
+                  const _conf = Math.round(_cfF);
+                  const _vtot = nz(e.ventasFacturadas);
+                  const _ing  = _vtot * _tc * _te;
+                  const _cp   = nz(prod?.costoUnitario) * _entF;
+                  const _env  = nz(prod?.costoEnvio || cfg.costoEnvio) * _cfF;
                   const _ads  = nz(e.gastoAds);
                   const _cos  = _cp + _env;
                   const _util = _ing - _cos - _ads;
                   const _rent = _ing > 0 ? _util / _ing : null;
-                  const _cpa  = _ent > 0 ? _ads / _ent : null;
+                  const _cpa  = _entF > 0 ? _ads / _entF : null;
                   return (
                     <tr key={e.id || ri} style={{ background: ri % 2 === 0 ? T.white : T.bg }}>
                       <TD>{e.fecha}</TD>
@@ -785,33 +794,39 @@ function Dashboard({ entries, productos, cfg, dateRange }) {
     const base = prodFil === "todos" ? filtered : filtered.filter(e => String(e.productoId) === String(prodFil));
     return base.map(e => {
       const prod = productos.find(p => String(p.id) === String(e.productoId));
-      const _tc   = nz(prod?.tasaConf || cfg.tasaConf) / 100;
-      const _conf = e.confirmados ?? Math.round(nz(e.pedidosTotales) * _tc);
-      const _ent  = nz(e.unidades);                              // unidades reales ingresadas
-      const _ing  = nz(prod?.precioVenta) * _ent;               // precio × unidades (Drofit)
-      const _cp   = nz(prod?.costoUnitario) * _ent;
-      const _env  = nz(prod?.costoEnvio || cfg.costoEnvio) * _conf;
-      const _ads  = nz(e.gastoAds);
-      const _cos  = _cp + _env;                                  // sin ads (Drofit)
-      const _util = _ing - _cos - _ads;                         // util = ing - costos - ads
-      return { ...e, prodNombre: prod?.nombre || "Sin nombre", conf: _conf, ent: _ent, ingReales: _ing, costosTot: _cos, utilidad: _util, ads: _ads };
+      const _tc      = nz(prod?.tasaConf || cfg.tasaConf) / 100;
+      const _te      = nz(prod?.tasaEnt  || cfg.tasaEnt)  / 100;
+      const _ped     = nz(e.pedidosTotales);
+      const _entF    = _ped * _tc * _te;                        // float (Drofit)
+      const _confF   = _ped * _tc;
+      const _ent     = Math.round(_entF);
+      const _conf    = Math.round(_confF);
+      const _vtot    = nz(e.ventasFacturadas);
+      const _ing     = _vtot * _tc * _te;                       // Drofit: vtot × TC × TE
+      const _cp      = nz(prod?.costoUnitario) * _entF;
+      const _env     = nz(prod?.costoEnvio || cfg.costoEnvio) * _confF;
+      const _ads     = nz(e.gastoAds);
+      const _cos     = _cp + _env;                              // sin ads
+      const _util    = _ing - _cos - _ads;
+      return { ...e, prodNombre: prod?.nombre || "Sin nombre", conf: _conf, ent: _ent, entF: _entF, ingTot: _vtot, ingReales: _ing, costosTot: _cos, utilidad: _util, ads: _ads };
     });
   }, [filtered, prodFil, productos, cfg]);
 
   const tot = useMemo(() => {
-    const t = { pedidos: 0, conf: 0, ent: 0, ingTot: 0, ingReales: 0, costos: 0, ads: 0 };
+    const t = { pedidos: 0, conf: 0, ent: 0, entF: 0, ingTot: 0, ingReales: 0, costos: 0, ads: 0 };
     data.forEach(e => {
-      t.pedidos += nz(e.pedidosTotales);
-      t.conf    += e.conf;
-      t.ent     += e.ent;
-      t.ingTot  += nz(e.ventasFacturadas);
+      t.pedidos   += nz(e.pedidosTotales);
+      t.conf      += e.conf;
+      t.ent       += e.ent;
+      t.entF      += (e.entF || 0);
+      t.ingTot    += nz(e.ventasFacturadas);
       t.ingReales += e.ingReales;
-      t.costos  += e.costosTot;  // sin ads
-      t.ads     += e.ads;
+      t.costos    += e.costosTot;
+      t.ads       += e.ads;
     });
-    t.util  = t.ingReales - t.costos - t.ads;  // igual que Drofit
+    t.util  = t.ingReales - t.costos - t.ads;
     t.rent  = t.ingReales > 0 ? t.util / t.ingReales : null;
-    t.cpa   = t.ent > 0 ? t.ads / t.ent : null;
+    t.cpa   = t.entF > 0 ? t.ads / t.entF : null;
     t.roas  = t.ads > 0 ? t.ingReales / t.ads : null;
     return t;
   }, [data]);
