@@ -232,7 +232,7 @@ const DateRangePicker = ({ from, to, onChange, label }) => (
 );
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
-const GCFG = { costoCompra: 5000, costoEnvio: 7500, tasaConf: 75, tasaEnt: 75, cpaEstimado: 5000 };
+const GCFG = { costoCompra: 5000, costoEnvio: 8500, tasaConf: 75, tasaEnt: 75, cpaEstimado: 5000 };
 const EPROD = { nombre: "", proveedor: "", idDropi: "", precioVenta: "", costoUnitario: "", costoEnvio: "", tasaConf: "", tasaEnt: "", cpaEstimado: "", pedidosDiarios: "1", pct2daUnidad: "10", linkLanding: "", linkRef1: "", linkRef2: "", angulo: "", validadores: "", linkAnuncio1: "", linkAnuncio2: "" };
 const EENTRY = { fecha: "", productoId: "", gastoAds: "", diasCampana: "", cpm: "", cpc: "", ctr: "", ventasFacturadas: "", pedidosTotales: "", unidades: "", confirmados: "", entregados: "", devoluciones: "", plataforma: "Meta" };
 const CHECKLIST = ["¿Tu producto soluciona un problema o necesidad importante?","¿Tiene un efecto \"wow\" en los primeros 5 segundos?","¿Validaste que es un producto exitoso (biblioteca de anuncios)?","¿Utilizaste videos verticales (9:16) o cuadrado (1:1)?","¿Sacaste videos de la librería de Meta?","¿Tus videos tienen un gancho que detenga el scroll?","¿Usaste videos con voz en off?","¿El producto en el video es el mismo que en la landing?","¿Tu primera imagen del carrusel muestra el producto en uso?","¿Usaste elementos visuales como GIFs (mínimo 3)?","¿Profundizaste más en beneficios que en características?","¿El ángulo de venta del video es congruente con la landing?","¿La oferta de tu landing es REALMENTE atractiva?"];
@@ -1622,18 +1622,18 @@ const DEFAULT_PRODUCTOS = [
   { id:"p4",  nombre:"Masajeador Facial",        precioVenta:24990, costoUnitario:11000, costoEnvio:6200, cpaEstimado:8000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"24036", proveedor:"Liquidambar" },
   { id:"p5",  nombre:"Balsamo Facial",           precioVenta:10990, costoUnitario:3200,  costoEnvio:6200, cpaEstimado:8000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"91556", proveedor:"Importadora Oferfly" },
   { id:"p6",  nombre:"Removedor Callos 2",       precioVenta:23990, costoUnitario:4500,  costoEnvio:6200, cpaEstimado:4604,  tasaConf:100, tasaEnt:100, pedidosDiarios:1, pct2daUnidad:10, idDropi:"10431", proveedor:"RVG sp" },
-  { id:"p7",  nombre:"Almohadilla Colicos",      precioVenta:28990, costoUnitario:4990,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:70,  tasaEnt:70,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"98717", proveedor:"Vida y Hogar spa" },
-  { id:"p8",  nombre:"Removedor Callos 1",       precioVenta:26990, costoUnitario:4900,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"10431", proveedor:"RVG sp" },
-  { id:"p9",  nombre:"Cuadernos Montessori",     precioVenta:28990, costoUnitario:2600,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"",      proveedor:"" },
-  { id:"p10", nombre:"Guantes Mascotas",         precioVenta:23990, costoUnitario:1800,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"",      proveedor:"" },
-  { id:"p11", nombre:"Cepillo Vapor",            precioVenta:14990, costoUnitario:3500,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"",      proveedor:"" },
-  { id:"p12", nombre:"Soporte Celular",          precioVenta:25990, costoUnitario:3800,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"78330", proveedor:"Meibo" },
-  { id:"p13", nombre:"Desinfectante Dientes UV", precioVenta:26990, costoUnitario:4990,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"75492", proveedor:"Anacaona spa" },
-  { id:"p14", nombre:"Basurero Portatil",        precioVenta:24990, costoUnitario:3500,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"40206", proveedor:"Meibo" },
-  { id:"p15", nombre:"Secador Zapatos",          precioVenta:30990, costoUnitario:6900,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"56094", proveedor:"Meibo" },
-  { id:"p16", nombre:"Levanta Muebles",          precioVenta:24990, costoUnitario:3500,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"27261", proveedor:"Meibo" },
-  { id:"p17", nombre:"Selladora Al Vacio",       precioVenta:29990, costoUnitario:5800,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"48988", proveedor:"Meibo" },
-  { id:"p18", nombre:"Bolsas Selladora",         precioVenta:15990, costoUnitario:2800,  costoEnvio:7500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"88817", proveedor:"Las Dalias" },
+  { id:"p7",  nombre:"Almohadilla Colicos",      precioVenta:28990, costoUnitario:4990,  costoEnvio:8500, cpaEstimado:5000,  tasaConf:70,  tasaEnt:70,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"98717", proveedor:"Vida y Hogar spa" },
+  { id:"p8",  nombre:"Removedor Callos 1",       precioVenta:26990, costoUnitario:4900,  costoEnvio:8500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"10431", proveedor:"RVG sp" },
+  { id:"p9",  nombre:"Cuadernos Montessori",     precioVenta:28990, costoUnitario:2600,  costoEnvio:8500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"",      proveedor:"" },
+  { id:"p10", nombre:"Guantes Mascotas",         precioVenta:23990, costoUnitario:1800,  costoEnvio:8500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"",      proveedor:"" },
+  { id:"p11", nombre:"Cepillo Vapor",            precioVenta:14990, costoUnitario:3500,  costoEnvio:8500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"",      proveedor:"" },
+  { id:"p12", nombre:"Soporte Celular",          precioVenta:25990, costoUnitario:3800,  costoEnvio:8500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"78330", proveedor:"Meibo" },
+  { id:"p13", nombre:"Desinfectante Dientes UV", precioVenta:26990, costoUnitario:4990,  costoEnvio:8500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"75492", proveedor:"Anacaona spa" },
+  { id:"p14", nombre:"Basurero Portatil",        precioVenta:24990, costoUnitario:3500,  costoEnvio:8500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"40206", proveedor:"Meibo" },
+  { id:"p15", nombre:"Secador Zapatos",          precioVenta:30990, costoUnitario:6900,  costoEnvio:8500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"56094", proveedor:"Meibo" },
+  { id:"p16", nombre:"Levanta Muebles",          precioVenta:24990, costoUnitario:3500,  costoEnvio:8500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"27261", proveedor:"Meibo" },
+  { id:"p17", nombre:"Selladora Al Vacio",       precioVenta:29990, costoUnitario:5800,  costoEnvio:8500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"48988", proveedor:"Meibo" },
+  { id:"p18", nombre:"Bolsas Selladora",         precioVenta:15990, costoUnitario:2800,  costoEnvio:8500, cpaEstimado:5000,  tasaConf:75,  tasaEnt:75,  pedidosDiarios:1, pct2daUnidad:10, idDropi:"88817", proveedor:"Las Dalias" },
 ];
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
