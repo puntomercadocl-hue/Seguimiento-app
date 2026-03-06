@@ -1036,20 +1036,10 @@ function Simulaciones({ cfg, productos }) {
   };
 
   const MODOS = [
-    { id: "tasas", icon: "📊", label: "Por Tasas de Entrega", tooltip: "Simula qué pasa si tus tasas de confirmación y entrega suben o bajan.
-
-😰 Ácido = pocas personas confirman y reciben (tasas bajas)
-📊 Base = tus tasas normales actuales
-🚀 Optimista = todo sale perfecto (tasas altas)
-
-Úsalo para: evaluar si el producto es viable antes de lanzarlo." },
-    { id: "cpa",   icon: "🎯", label: "Por CPA Real de Ads",  tooltip: "Ingresa cuánto te costó realmente cada venta (CPA Real) y te dice si ganaste o perdiste plata.
-
-😰 Ácido = el anuncio anda mal, CPA alto
-📊 Base = rendimiento normal
-🚀 Optimista = el anuncio anda excelente, CPA bajo
-
-Úsalo para: analizar si una campaña activa es rentable." },
+    { id: "tasas", icon: "📊", label: "Por Tasas de Entrega",
+      tooltip: ["Simula qué pasa si tus tasas de confirmación/entrega suben o bajan.", "😰 Ácido = pocas personas confirman y reciben (tasas bajas)", "📊 Base = tus tasas normales actuales", "🚀 Optimista = todo sale perfecto (tasas altas)", "Úsalo para: evaluar si el producto es viable antes de lanzarlo."] },
+    { id: "cpa",   icon: "🎯", label: "Por CPA Real de Ads",
+      tooltip: ["Ingresa cuánto te costó cada venta (CPA Real) y te dice si ganaste o perdiste.", "😰 Ácido = el anuncio anda mal, CPA alto", "📊 Base = rendimiento normal", "🚀 Optimista = el anuncio anda excelente, CPA bajo", "Úsalo para: analizar si una campaña activa es rentable."] },
   ];
 
   return (
@@ -1069,7 +1059,7 @@ function Simulaciones({ cfg, productos }) {
               </button>
               {tooltip === m.id && (
                 <div style={{ position: "absolute", top: "110%", left: 0, zIndex: 100, background: T.text, color: "#fff", borderRadius: 10, padding: "12px 16px", fontSize: 12, lineHeight: 1.6, width: 280, whiteSpace: "pre-line", boxShadow: "0 4px 20px rgba(0,0,0,0.2)" }}>
-                  {m.tooltip}
+                  {Array.isArray(m.tooltip) ? m.tooltip.map((line, i) => <div key={i} style={{ marginBottom: i < m.tooltip.length-1 ? 6 : 0 }}>{line}</div>) : m.tooltip}
                 </div>
               )}
             </div>
