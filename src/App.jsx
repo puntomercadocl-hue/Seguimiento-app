@@ -608,18 +608,18 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
   const s = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const selProd = productos.find(p => String(p.id) === String(form.productoId));
 
-  const tc = nz(selProd?.tasaConf || cfg.tasaConf) / 100;
-  const te = nz(selProd?.tasaEnt  || cfg.tasaEnt)  / 100;
-  const pedidos    = nz(form.pedidosCaptados);
-  const confirmados = Math.round(pedidos * tc);
-  const entregados  = Math.round(confirmados * te);
+  // Lógica igual a Drofit: ingresos reales = precio × unidades; ads separado de costos
+  const pedidos     = nz(form.pedidosCaptados);
+  const unidades    = nz(form.unidadesVendidas);
   const gastoAds    = nz(form.gastoAds);
-  const costosProd  = nz(selProd?.costoUnitario) * entregados;
+  const tc          = nz(selProd?.tasaConf || cfg.tasaConf) / 100;
+  const confirmados = Math.round(pedidos * tc);
+  const ingReales   = nz(selProd?.precioVenta) * unidades;       // precio × unidades (Drofit)
+  const costosProd  = nz(selProd?.costoUnitario) * unidades;
   const costosEnv   = nz(selProd?.costoEnvio || cfg.costoEnvio) * confirmados;
-  const costosTot   = costosProd + costosEnv + gastoAds;
-  const ingReales   = nz(selProd?.precioVenta) * entregados;
-  const utilidad    = ingReales - costosTot;
-  const cpaReal     = entregados > 0 ? gastoAds / entregados : null;
+  const costosTot   = costosProd + costosEnv;                    // sin ads (Drofit)
+  const utilidad    = ingReales - costosTot - gastoAds;          // util = ing - costos - ads
+  const cpaReal     = unidades > 0 ? gastoAds / unidades : null;
   const rent        = ingReales > 0 ? utilidad / ingReales : null;
 
   const save = () => {
@@ -633,7 +633,7 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
       ventasFacturadas: nz(form.ingresosTotales),
       gastoAds: nz(form.gastoAds),
       confirmados,
-      entregados,
+      entregados: nz(form.unidadesVendidas),
       plataforma: "Meta",
     };
     if (editId) setEntries(e => e.map(x => x.id === editId ? entry : x));
@@ -686,21 +686,20 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
         </div>
       </Card>
 
-      {selProd && pedidos > 0 && (
+      {selProd && (pedidos > 0 || unidades > 0 || ingReales > 0) && (
         <Card style={{ background: T.bg }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: T.text, marginBottom: 14 }}>📊 Resumen calculado</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
             {[
-              ["Pedidos Captados", pedidos, null, "#ede9ff"],
-              ["Confirmados",      confirmados, null, T.yellowBg],
-              ["Entregados",       entregados,  T.green, T.greenBg],
-              ["Ingresos Reales",  clp(ingReales), T.green, T.greenBg],
-              ["Gasto Ads",        clp(gastoAds),  T.red, T.redBg],
-              ["Costos Totales",   clp(costosTot), T.red, T.redBg],
-              ["Utilidad",         clp(utilidad),  utilidad>=0?T.green:T.red, utilidad>=0?T.greenBg:T.redBg],
-              ["CPA Real",         clp(cpaReal),   null, T.yellowBg],
-              ["Rentabilidad",     pct(rent),      rent>=0?T.green:T.red, rent>=0?T.greenBg:T.redBg],
-              ["ROAS",             gastoAds>0?x2(ingReales/gastoAds):"—", T.accent, T.accentL],
+              ["Pedidos Captados",   pedidos,         null,                       "#ede9ff"],
+              ["Unidades Vendidas",   unidades,        T.green,                    T.greenBg],
+              ["Ingresos Reales",     clp(ingReales),  T.green,                    T.greenBg],
+              ["Costos Totales",      clp(costosTot),  T.red,                      T.redBg],
+              ["Gasto en Anuncios",   clp(gastoAds),   T.red,                      T.redBg],
+              ["Utilidad Total",      clp(utilidad),   utilidad>=0?T.green:T.red,  utilidad>=0?T.greenBg:T.redBg],
+              ["CPA Real",            clp(cpaReal),    null,                       T.yellowBg],
+              ["Rentabilidad %",      pct(rent),       rent>=0?T.green:T.red,      rent>=0?T.greenBg:T.redBg],
+              ["ROAS",                gastoAds>0?x2(ingReales/gastoAds):"—", T.accent, T.accentL],
             ].map(([l, v, c, bg]) => (
               <div key={l} style={{ background: bg||T.white, borderRadius: 10, padding: "12px 14px" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.sub, textTransform: "uppercase", marginBottom: 4 }}>{l}</div>
@@ -726,15 +725,14 @@ function Registro({ entries, setEntries, productos, cfg, dateRange }) {
                 {[...entries].reverse().map((e, ri) => {
                   const prod = productos.find(p => String(p.id) === String(e.productoId));
                   const _tc   = nz(prod?.tasaConf || cfg.tasaConf) / 100;
-                  const _te   = nz(prod?.tasaEnt  || cfg.tasaEnt)  / 100;
                   const _conf = e.confirmados ?? Math.round(nz(e.pedidosTotales) * _tc);
-                  const _ent  = e.entregados  ?? Math.round(_conf * _te);
+                  const _ent  = nz(e.unidades);
                   const _ing  = nz(prod?.precioVenta) * _ent;
                   const _cp   = nz(prod?.costoUnitario) * _ent;
                   const _env  = nz(prod?.costoEnvio || cfg.costoEnvio) * _conf;
                   const _ads  = nz(e.gastoAds);
-                  const _cos  = _cp + _env + _ads;
-                  const _util = _ing - _cos;
+                  const _cos  = _cp + _env;
+                  const _util = _ing - _cos - _ads;
                   const _rent = _ing > 0 ? _util / _ing : null;
                   const _cpa  = _ent > 0 ? _ads / _ent : null;
                   return (
@@ -788,15 +786,14 @@ function Dashboard({ entries, productos, cfg, dateRange }) {
     return base.map(e => {
       const prod = productos.find(p => String(p.id) === String(e.productoId));
       const _tc   = nz(prod?.tasaConf || cfg.tasaConf) / 100;
-      const _te   = nz(prod?.tasaEnt  || cfg.tasaEnt)  / 100;
       const _conf = e.confirmados ?? Math.round(nz(e.pedidosTotales) * _tc);
-      const _ent  = e.entregados  ?? Math.round(_conf * _te);
-      const _ing  = nz(prod?.precioVenta) * _ent;
+      const _ent  = nz(e.unidades);                              // unidades reales ingresadas
+      const _ing  = nz(prod?.precioVenta) * _ent;               // precio × unidades (Drofit)
       const _cp   = nz(prod?.costoUnitario) * _ent;
       const _env  = nz(prod?.costoEnvio || cfg.costoEnvio) * _conf;
       const _ads  = nz(e.gastoAds);
-      const _cos  = _cp + _env + _ads;
-      const _util = _ing - _cos;
+      const _cos  = _cp + _env;                                  // sin ads (Drofit)
+      const _util = _ing - _cos - _ads;                         // util = ing - costos - ads
       return { ...e, prodNombre: prod?.nombre || "Sin nombre", conf: _conf, ent: _ent, ingReales: _ing, costosTot: _cos, utilidad: _util, ads: _ads };
     });
   }, [filtered, prodFil, productos, cfg]);
@@ -809,10 +806,10 @@ function Dashboard({ entries, productos, cfg, dateRange }) {
       t.ent     += e.ent;
       t.ingTot  += nz(e.ventasFacturadas);
       t.ingReales += e.ingReales;
-      t.costos  += e.costosTot;
+      t.costos  += e.costosTot;  // sin ads
       t.ads     += e.ads;
     });
-    t.util  = t.ingReales - t.costos;
+    t.util  = t.ingReales - t.costos - t.ads;  // igual que Drofit
     t.rent  = t.ingReales > 0 ? t.util / t.ingReales : null;
     t.cpa   = t.ent > 0 ? t.ads / t.ent : null;
     t.roas  = t.ads > 0 ? t.ingReales / t.ads : null;
@@ -860,15 +857,15 @@ function Dashboard({ entries, productos, cfg, dateRange }) {
   );
 
   const kpis = [
-    ["📦", "Pedidos Totales",   tot.pedidos,           null,                   "#ede9ff"],
-    ["✅", "Pedidos Entregados", tot.ent,               T.green,                T.greenBg],
-    ["💰", "Ingresos Totales",  clp(tot.ingTot),       null,                   T.bg],
-    ["💵", "Ingresos Reales",   clp(tot.ingReales),    T.green,                T.greenBg],
-    ["📣", "Gasto en Anuncios", clp(tot.ads),          T.red,                  T.redBg],
-    ["💸", "Costos Totales",    clp(tot.costos),       T.red,                  T.redBg],
-    ["📈", "Utilidad Total",    clp(tot.util),         tot.util>=0?T.green:T.red, tot.util>=0?T.greenBg:T.redBg],
-    ["🎯", "CPA Real",          clp(tot.cpa),          null,                   T.yellowBg],
-    ["📊", "Rentabilidad %",    pct(tot.rent),         tot.rent>=0?T.green:T.red, tot.rent>=0?T.greenBg:T.redBg],
+    ["📦", "Pedidos Totales",   tot.pedidos,           null,                       "#ede9ff"],
+    ["✅", "Pedidos Entregados", tot.ent,               T.green,                    T.greenBg],
+    ["💰", "Ingresos Totales",  clp(tot.ingTot),       null,                       T.bg],
+    ["💵", "Ingresos Reales",   clp(tot.ingReales),    T.green,                    T.greenBg],
+    ["💸", "Costos Totales",    clp(tot.costos),       T.red,                      T.redBg],
+    ["📣", "Gasto en Anuncios", clp(tot.ads),          T.red,                      T.redBg],
+    ["📈", "Utilidad Total",    clp(tot.util),         tot.util>=0?T.green:T.red,  tot.util>=0?T.greenBg:T.redBg],
+    ["🎯", "CPA Real",          clp(tot.cpa),          null,                       T.yellowBg],
+    ["📊", "Rentabilidad %",    pct(tot.rent),         tot.rent>=0?T.green:T.red,  tot.rent>=0?T.greenBg:T.redBg],
   ];
 
   return (
