@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, AreaChart, Area } from "recharts";
+import AgentOffice from "./AgentOffice";
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 const SK = "drofitv4";
@@ -1740,6 +1741,7 @@ const NAV = [
   ["importar",    "📥", "Importar Datos"],
   ["dashboard",   "📊", "Dashboard"],
   ["simulaciones","🔮", "Simulaciones"],
+  ["oficina",     "🏢", "Oficina"],
 ];
 
 export default function App() {
@@ -1773,6 +1775,7 @@ export default function App() {
     importar:    ["Importar Datos",     "Sube el Excel de Dropi y CSV de Shopify — detecta combos y upsells"],
     dashboard:   ["Dashboard",          "Análisis de rentabilidad, gráficos y resumen por producto"],
     simulaciones:["Simulaciones",       "Proyecta rentabilidad en escenario ácido, base y optimista"],
+    oficina:     ["Oficina de Agentes", "Tu equipo trabajando en tiempo real — hacé clic para activar o pausar"],
   };
 
   return (
@@ -1836,6 +1839,7 @@ export default function App() {
           {page === "importar"      && <Importar productos={productos} setEntries={setEntries} entries={entries} />}
           {page === "dashboard"     && <Dashboard entries={entries} productos={productos} cfg={cfg} dateRange={dateRange} />}
           {page === "simulaciones"  && <Simulaciones cfg={cfg} productos={productos} />}
+          {page === "oficina"       && <AgentOffice />}
         </div>
       </div>
     </div>
