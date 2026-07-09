@@ -311,7 +311,7 @@
   .herr-body .pedir:hover::after{transform:translateX(4px);}
 
   /* ---------- Taller de Journal ---------- */
-  #taller{background:var(--blanco);}
+  #taller{background:var(--blanco);position:relative;overflow:hidden;}
   .taller-grid{
     display:grid;grid-template-columns:1fr 1fr;gap:clamp(30px,5vw,60px);align-items:center;
   }
@@ -342,6 +342,29 @@
     font-size:.8rem;font-weight:600;color:var(--tinta-suave);
     border:1px solid color-mix(in srgb, var(--marron) 25%, transparent);
   }
+  /* Portada del taller: foto real encima del degradado de respaldo */
+  .taller-visual > img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:2;}
+  /* Galería del taller */
+  .taller-galeria-head{margin-top:clamp(52px,8vh,84px);}
+  .taller-galeria{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-top:30px;
+  }
+  .taller-foto{
+    aspect-ratio:1;border-radius:18px;overflow:hidden;box-shadow:var(--sombra);
+    background:color-mix(in srgb, var(--rosa) 25%, var(--blanco));
+  }
+  .taller-foto img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .45s ease;}
+  .taller-foto:hover img{transform:scale(1.05);}
+  .galeria-ph{
+    width:100%;height:100%;display:grid;place-items:center;text-align:center;padding:12px;
+    font-size:.78rem;font-weight:600;color:var(--tinta-suave);
+    background:repeating-linear-gradient(45deg, color-mix(in srgb,var(--rosa) 26%,var(--blanco)) 0 12px, var(--blanco) 12px 24px);
+  }
+
+  /* ---------- Símbolos del brandbook ---------- */
+  .sym{display:block;color:var(--terracota);}
+  .sec-head .sym{width:42px;height:42px;margin:0 auto 4px;}
+  .float-sym{position:absolute;pointer-events:none;opacity:.5;}
 
   .sinpresion{
     margin-top:26px;
@@ -462,6 +485,7 @@
 <section id="parati">
   <div class="wrap">
     <div class="sec-head center reveal">
+      <svg class="sym" viewBox="0 0 40 36" fill="currentColor" aria-hidden="true"><path d="M20 34 C6 24 1 14 8 7 C13 2 20 5 20 11 C20 5 27 2 32 7 C39 14 34 24 20 34 Z"/></svg>
       <span class="eyebrow">Para las Talitas de los ojos de Jesús</span>
       <h2>Estés donde estés, este espacio es para ti</h2>
       <p>No exigimos un punto de partida espiritual. Te acompañamos desde donde estás.</p>
@@ -482,6 +506,7 @@
 <section id="tienda">
   <div class="wrap">
     <div class="sec-head center reveal">
+      <svg class="sym" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M24 44 V16"/><path d="M24 17 C21 14 17 14 15 17 C17 20 21 20 24 17 Z" fill="currentColor" stroke="none"/><path d="M24 17 C27 14 31 14 33 17 C31 20 27 20 24 17 Z" fill="currentColor" stroke="none"/><path d="M24 25 C21 22 17 22 15 25 C17 28 21 28 24 25 Z" fill="currentColor" stroke="none"/><path d="M24 25 C27 22 31 22 33 25 C31 28 27 28 24 25 Z" fill="currentColor" stroke="none"/><path d="M24 33 C21 30 17 30 15 33 C17 36 21 36 24 33 Z" fill="currentColor" stroke="none"/><path d="M24 33 C27 30 31 30 33 33 C31 36 27 36 24 33 Z" fill="currentColor" stroke="none"/></svg>
       <span class="eyebrow">La tienda</span>
       <h2>Herramientas para tu encuentro con Dios</h2>
       <p>Cada pieza nació en oración, hecha con amor y con fe. Escríbenos por Instagram para pedir la tuya.</p>
@@ -572,17 +597,6 @@
         </div>
       </article>
 
-      <article class="herr reveal">
-        <div class="herr-visual">
-          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="22" cy="24" r="7"/><circle cx="42" cy="24" r="7"/><path d="M10 52 C10 42 16 37 22 37 C28 37 30 40 32 42 C34 40 36 37 42 37 C48 37 54 42 54 52"/></svg>
-        </div>
-        <div class="herr-body">
-          <h3>Talleres y encuentros</h3>
-          <p class="para">para no caminar sola la fe</p>
-          <p class="desc">Espacios vivos de comunidad: reflexión, Palabra aplicada a emociones reales y procesos compartidos. Nuestro taller estrella es el de Journal.</p>
-          <a class="pedir" href="#taller">Ver el Taller de Journal</a>
-        </div>
-      </article>
     </div>
 
     <div class="sinpresion reveal">
@@ -602,8 +616,11 @@
 <div class="squiggle" aria-hidden="true"></div>
 
 <section id="taller">
+  <svg class="float-sym" style="top:30px;right:-10px;width:110px;color:var(--oliva);" viewBox="0 0 48 60" fill="currentColor" aria-hidden="true"><path d="M23 58 C23 44 23 20 24 4 C24 3 26 3 26 4 C25 20 25 44 25 58 Z"/><path d="M24 18 C19 15 12 16 9 11 C15 8 21 11 24 18 Z"/><path d="M25 26 C30 22 37 23 40 18 C34 15 28 18 25 26 Z"/><path d="M24 34 C19 31 13 32 10 27 C16 24 21 27 24 34 Z"/><path d="M25 42 C30 39 36 40 39 35 C33 32 28 35 25 42 Z"/></svg>
+  <svg class="float-sym" style="bottom:40px;left:-16px;width:90px;color:var(--amarillo);opacity:.7;" viewBox="0 0 48 60" fill="currentColor" aria-hidden="true"><path d="M23 58 V20 H25 V58 Z"/><path d="M24 20 C20 16 14 16 11 20 C14 24 20 24 24 20 Z"/><path d="M24 20 C28 16 34 16 37 20 C34 24 28 24 24 20 Z"/><path d="M24 30 C20 26 14 26 11 30 C14 34 20 34 24 30 Z"/><path d="M24 30 C28 26 34 26 37 30 C34 34 28 34 24 30 Z"/><path d="M24 40 C20 36 14 36 11 40 C14 44 20 44 24 40 Z"/><path d="M24 40 C28 36 34 36 37 40 C34 44 28 44 24 40 Z"/></svg>
   <div class="wrap taller-grid">
-    <div class="taller-visual reveal" aria-hidden="true">
+    <div class="taller-visual reveal">
+      <img src="img/taller-portada.jpg" alt="Portada del Taller de Journal: Niña, escribe" loading="lazy" onerror="this.remove()">
       <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" aria-hidden="true">
         <path d="M12 50 L12 16 C12 13 14 12 16 12 L40 12 L52 24 L52 50 C52 52 50 54 48 54 L16 54 C14 54 12 52 12 50 Z" stroke-linejoin="round"/>
         <path d="M40 12 L40 24 L52 24"/>
@@ -642,6 +659,23 @@
         <span>🕊️ Para todos los niveles</span>
       </div>
       <a class="btn btn-rosa" href="https://www.instagram.com/talitacumivzla" target="_blank" rel="noopener">Quiero inscribirme</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="sec-head center taller-galeria-head reveal">
+      <svg class="sym" viewBox="0 0 48 48" fill="currentColor" aria-hidden="true"><path d="M6 30 C13 25 19 25 25 27 C29 20 36 16 43 16 C41 20 41 23 40 25 C37 32 30 37 22 37 C18 37 13 35 9 39 C10 35 8 32 6 30 Z"/></svg>
+      <span class="eyebrow">Momentos vividos</span>
+      <h2>Galería del taller</h2>
+      <p>Un vistazo a los encuentros que hemos vivido juntas, escribiendo delante de Dios.</p>
+    </div>
+    <div class="taller-galeria">
+      <figure class="taller-foto reveal"><img src="img/taller-1.jpg" alt="Taller de Journal Talita Cumi, foto 1" loading="lazy" onerror="this.parentNode.innerHTML='&lt;div class=\'galeria-ph\'&gt;Taller · foto 1&lt;/div&gt;'"></figure>
+      <figure class="taller-foto reveal"><img src="img/taller-2.jpg" alt="Taller de Journal Talita Cumi, foto 2" loading="lazy" onerror="this.parentNode.innerHTML='&lt;div class=\'galeria-ph\'&gt;Taller · foto 2&lt;/div&gt;'"></figure>
+      <figure class="taller-foto reveal"><img src="img/taller-3.jpg" alt="Taller de Journal Talita Cumi, foto 3" loading="lazy" onerror="this.parentNode.innerHTML='&lt;div class=\'galeria-ph\'&gt;Taller · foto 3&lt;/div&gt;'"></figure>
+      <figure class="taller-foto reveal"><img src="img/taller-4.jpg" alt="Taller de Journal Talita Cumi, foto 4" loading="lazy" onerror="this.parentNode.innerHTML='&lt;div class=\'galeria-ph\'&gt;Taller · foto 4&lt;/div&gt;'"></figure>
+      <figure class="taller-foto reveal"><img src="img/taller-5.jpg" alt="Taller de Journal Talita Cumi, foto 5" loading="lazy" onerror="this.parentNode.innerHTML='&lt;div class=\'galeria-ph\'&gt;Taller · foto 5&lt;/div&gt;'"></figure>
+      <figure class="taller-foto reveal"><img src="img/taller-6.jpg" alt="Taller de Journal Talita Cumi, foto 6" loading="lazy" onerror="this.parentNode.innerHTML='&lt;div class=\'galeria-ph\'&gt;Taller · foto 6&lt;/div&gt;'"></figure>
     </div>
   </div>
 </section>

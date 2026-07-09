@@ -27,6 +27,12 @@ FRANELAS  (carrusel de 5 fotos)
   franela-4.jpg → beige "Dejó a las 99 y me salvó a mí" (ovejita)
   franela-5.jpg → verde oliva "Metanoía" (Romanos 12:2)
 
+TALLER DE JOURNAL  (sección aparte, no tienda)
+  taller-portada.jpg → la portada "Niña, escribe" (la foto que aún subes)
+  taller-1.jpg … taller-6.jpg → galería de fotos de talleres realizados
+  (Si tienes más o menos de 6 fotos, avísame y ajusto la cantidad de
+   espacios en la galería.)
+
 CÓMO AGREGARLAS
   Opción A (recomendada): súbelas a la carpeta talita-cumi/img/ del
   repositorio en GitHub con esos nombres.
