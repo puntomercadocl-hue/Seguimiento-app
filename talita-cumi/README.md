@@ -1,8 +1,19 @@
 # Sitio web — Talita Cumi 🪔
 
 Sitio de presentación para la marca **Talita Cumi** (@talitacumivzla), basado en el
-brief de la marca: paleta crema / rosa empolvado / marrón, mensaje central
-*"Niña, levántate" (Marcos 5:41)*, valores y catálogo de productos.
+Brandbook 2026 y el Plan de Acción: paleta oficial (beige `#F2EDD5`, rosa `#f4adc0`,
+rosa antiguo `#ecbfc1`, verde oliva `#575946`, amarillo `#f4d8ac`, azul `#95afbf`,
+terracota `#D9A491`, marrón `#af8564`), mensaje central *"Niña, levántate"
+(Marcos 5:41)* y el posicionamiento del plan: **no es una tienda, es acompañamiento
+espiritual** — el sitio presenta la historia, los 4 pilares y el propósito de cada
+herramienta, con llamados suaves ("sin presión, sin obligación").
+
+**Tipografías**: las oficiales de la marca (BlurWeb, Gliker, White Magnolia) son
+fuentes con licencia que no están en Google Fonts, así que el sitio usa
+aproximaciones gratuitas del mismo estilo: **Gluten** (títulos redondeados),
+**Quicksand** (cuerpo) y **Ms Madi** (manuscrita). Si compran las fuentes
+oficiales, se cargan con `@font-face` y se cambian las variables `--display`,
+`--sans` y `--script` al inicio del CSS.
 
 Es **un solo archivo** (`index.html`) sin dependencias ni build: todo el CSS y JS
 está incluido dentro. Se puede abrir directo en el navegador haciendo doble clic.
