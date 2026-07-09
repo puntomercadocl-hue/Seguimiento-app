@@ -20,6 +20,13 @@ AGENDA DEVOCIONAL  (carrusel de 5 fotos)
 FRASCO DE EMOCIONES  (1 foto)
   frasco.jpg → frasco con tarjetas de colores y etiqueta "Menorá"
 
+FRANELAS  (carrusel de 5 fotos)
+  franela-1.jpg → blanca "Sanada para animar a otros" (1 Tes 5:11)
+  franela-2.jpg → marrón "Dejó a las 99 y me salvó a mí" (oveja)
+  franela-3.jpg → blanca "Encontrado 100" (oveja negra)
+  franela-4.jpg → beige "Dejó a las 99 y me salvó a mí" (ovejita)
+  franela-5.jpg → verde oliva "Metanoía" (Romanos 12:2)
+
 CÓMO AGREGARLAS
   Opción A (recomendada): súbelas a la carpeta talita-cumi/img/ del
   repositorio en GitHub con esos nombres.
