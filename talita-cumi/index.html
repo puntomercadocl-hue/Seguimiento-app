@@ -264,6 +264,40 @@
   .herr:nth-child(6n+5) .herr-visual{background:color-mix(in srgb, var(--oliva) 30%, var(--blanco));}
   .herr:nth-child(6n+6) .herr-visual{background:color-mix(in srgb, var(--rosa-antiguo) 55%, var(--blanco));}
   .herr-visual svg{width:64px;height:64px;color:var(--tinta);opacity:.8;stroke-width:1.4;}
+  .herr-visual > img{width:100%;height:100%;object-fit:cover;}
+
+  /* ---------- Carrusel de producto ---------- */
+  .carousel{position:relative;overflow:hidden;}
+  .carousel-track{display:flex;height:100%;transition:transform .45s ease;}
+  .carousel-track img{
+    flex:0 0 100%;width:100%;height:100%;object-fit:cover;display:block;
+  }
+  /* Placeholder si la imagen aún no existe */
+  .carousel-slide{
+    flex:0 0 100%;height:100%;display:grid;place-items:center;text-align:center;
+    padding:16px;font-size:.82rem;font-weight:600;color:var(--tinta-suave);
+    background:repeating-linear-gradient(45deg, color-mix(in srgb,var(--rosa) 30%,var(--blanco)) 0 12px, var(--blanco) 12px 24px);
+  }
+  .carousel-btn{
+    position:absolute;top:50%;transform:translateY(-50%);
+    width:34px;height:34px;border:none;border-radius:50%;cursor:pointer;
+    background:color-mix(in srgb, var(--blanco) 85%, transparent);
+    color:var(--tinta);font-size:1.3rem;line-height:1;
+    display:grid;place-items:center;box-shadow:0 3px 10px rgba(0,0,0,.15);
+    transition:background .2s, transform .2s;
+  }
+  .carousel-btn:hover{background:var(--blanco);}
+  .carousel-btn.prev{left:10px;}
+  .carousel-btn.next{right:10px;}
+  .carousel-btn:active{transform:translateY(-50%) scale(.92);}
+  .carousel-dots{
+    position:absolute;bottom:10px;left:0;right:0;display:flex;gap:7px;justify-content:center;
+  }
+  .carousel-dots button{
+    width:8px;height:8px;border-radius:50%;border:none;cursor:pointer;padding:0;
+    background:color-mix(in srgb, var(--tinta) 30%, transparent);transition:background .2s, transform .2s;
+  }
+  .carousel-dots button.active{background:var(--terracota);transform:scale(1.3);}
   .herr-body{padding:20px 22px 24px;display:flex;flex-direction:column;flex:1;}
   .herr-body h3{font-size:1.2rem;}
   .herr-body .para{font-family:var(--script);font-size:1.35rem;color:var(--terracota);line-height:1.1;margin-top:2px;}
@@ -454,8 +488,15 @@
     </div>
     <div class="herr-grid">
       <article class="herr reveal">
-        <div class="herr-visual">
-          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" aria-hidden="true"><rect x="14" y="10" width="36" height="46" rx="4"/><path d="M22 10 V56 M30 22 H44 M30 30 H44 M30 38 H40"/></svg>
+        <div class="herr-visual carousel" data-carousel>
+          <div class="carousel-track">
+            <img src="img/agenda-1.jpg" alt="Agenda anual Talita Cumi, portada rosa con el nombre de la marca" loading="lazy" onerror="this.outerHTML='&lt;div class=\'carousel-slide\'&gt;Agenda · foto 1&lt;br&gt;(agrega img/agenda-1.jpg)&lt;/div&gt;'">
+            <img src="img/agenda-2.jpg" alt="Agenda anual Talita Cumi, portada con acuarela de Jesús" loading="lazy" onerror="this.outerHTML='&lt;div class=\'carousel-slide\'&gt;Agenda · foto 2&lt;br&gt;(agrega img/agenda-2.jpg)&lt;/div&gt;'">
+            <img src="img/agenda-3.jpg" alt="Agenda Talita Cumi, portada a cuadros rosa con la palabra Sermón" loading="lazy" onerror="this.outerHTML='&lt;div class=\'carousel-slide\'&gt;Agenda · foto 3&lt;br&gt;(agrega img/agenda-3.jpg)&lt;/div&gt;'">
+          </div>
+          <button class="carousel-btn prev" type="button" aria-label="Foto anterior">‹</button>
+          <button class="carousel-btn next" type="button" aria-label="Foto siguiente">›</button>
+          <div class="carousel-dots" role="tablist" aria-label="Seleccionar foto"></div>
         </div>
         <div class="herr-body">
           <h3>Agenda anual</h3>
@@ -466,8 +507,17 @@
       </article>
 
       <article class="herr reveal">
-        <div class="herr-visual">
-          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" aria-hidden="true"><rect x="14" y="10" width="36" height="46" rx="4"/><path d="M22 10 V56"/><path d="M32 28 C32 24 37 24 37 28 C37 24 42 24 42 28 C42 32 37 35 37 35 C37 35 32 32 32 28 Z"/><path d="M30 44 H44"/></svg>
+        <div class="herr-visual carousel" data-carousel>
+          <div class="carousel-track">
+            <img src="img/devocional-1.jpg" alt="Agenda devocional Talita Cumi, portada con formas orgánicas" loading="lazy" onerror="this.outerHTML='&lt;div class=\'carousel-slide\'&gt;Devocional · foto 1&lt;br&gt;(agrega img/devocional-1.jpg)&lt;/div&gt;'">
+            <img src="img/devocional-2.jpg" alt="Agenda devocional Talita Cumi, portada vista completa" loading="lazy" onerror="this.outerHTML='&lt;div class=\'carousel-slide\'&gt;Devocional · foto 2&lt;br&gt;(agrega img/devocional-2.jpg)&lt;/div&gt;'">
+            <img src="img/devocional-3.jpg" alt="Página interior del devocional: De Abba Padre aprendí" loading="lazy" onerror="this.outerHTML='&lt;div class=\'carousel-slide\'&gt;Devocional · foto 3&lt;br&gt;(agrega img/devocional-3.jpg)&lt;/div&gt;'">
+            <img src="img/devocional-4.jpg" alt="Índice del Devocional 1 con sus temas y versículos" loading="lazy" onerror="this.outerHTML='&lt;div class=\'carousel-slide\'&gt;Devocional · foto 4&lt;br&gt;(agrega img/devocional-4.jpg)&lt;/div&gt;'">
+            <img src="img/devocional-5.jpg" alt="Página del devocional: más Relación, menos Religión" loading="lazy" onerror="this.outerHTML='&lt;div class=\'carousel-slide\'&gt;Devocional · foto 5&lt;br&gt;(agrega img/devocional-5.jpg)&lt;/div&gt;'">
+          </div>
+          <button class="carousel-btn prev" type="button" aria-label="Foto anterior">‹</button>
+          <button class="carousel-btn next" type="button" aria-label="Foto siguiente">›</button>
+          <div class="carousel-dots" role="tablist" aria-label="Seleccionar foto"></div>
         </div>
         <div class="herr-body">
           <h3>Agenda devocional</h3>
@@ -491,7 +541,7 @@
 
       <article class="herr reveal">
         <div class="herr-visual">
-          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" aria-hidden="true"><path d="M22 14 H42 M24 14 V10 H40 V14"/><path d="M20 14 C18 26 18 40 22 52 C23 55 41 55 42 52 C46 40 46 26 44 14"/><path d="M27 32 C27 29 31 29 31 32 C31 29 35 29 35 32 C35 35 31 38 31 38 C31 38 27 35 27 32 Z"/></svg>
+          <img src="img/frasco.jpg" alt="Frasco de emociones Talita Cumi con tarjetas de colores y etiqueta Menorá" loading="lazy" onerror="this.outerHTML='&lt;div class=\'carousel-slide\'&gt;Frasco de emociones&lt;br&gt;(agrega img/frasco.jpg)&lt;/div&gt;'">
         </div>
         <div class="herr-body">
           <h3>Frasco de emociones</h3>
@@ -657,6 +707,29 @@
   if(matchMedia('(prefers-reduced-motion: reduce)').matches){
     document.querySelectorAll('.reveal').forEach(el=>el.classList.add('in'));
   }
+
+  // Carrusel(es) de producto
+  document.querySelectorAll('[data-carousel]').forEach(car=>{
+    const track = car.querySelector('.carousel-track');
+    const slides = track.children;
+    const dotsWrap = car.querySelector('.carousel-dots');
+    let i = 0;
+    const go = n => {
+      i = (n + slides.length) % slides.length;
+      track.style.transform = `translateX(${-i*100}%)`;
+      dotsWrap.querySelectorAll('button').forEach((d,x)=>d.classList.toggle('active', x===i));
+    };
+    for(let s=0; s<slides.length; s++){
+      const d = document.createElement('button');
+      d.type = 'button';
+      d.setAttribute('aria-label', `Foto ${s+1}`);
+      d.addEventListener('click', ()=>go(s));
+      dotsWrap.appendChild(d);
+    }
+    car.querySelector('.prev').addEventListener('click', ()=>go(i-1));
+    car.querySelector('.next').addEventListener('click', ()=>go(i+1));
+    go(0);
+  });
 </script>
 
 </body>

@@ -1,0 +1,32 @@
+FOTOS DE PRODUCTOS — Talita Cumi
+=================================
+
+Guarda aquí las fotos con EXACTAMENTE estos nombres (en minúscula, .jpg).
+En cuanto estén, el carrusel de cada producto las muestra solo. Si falta
+alguna, en su lugar sale un recuadro gris con el nombre que hay que agregar.
+
+AGENDA ANUAL  (carrusel de 3 fotos)
+  agenda-1.jpg   → portada rosa "TALITA CUMI"
+  agenda-2.jpg   → portada con la acuarela de Jesús
+  agenda-3.jpg   → portada a cuadros rosa "SERMÓN"
+
+AGENDA DEVOCIONAL  (carrusel de 5 fotos)
+  devocional-1.jpg → portada "DEVOCIONAL" (formas orgánicas)
+  devocional-2.jpg → portada vista completa
+  devocional-3.jpg → página interior "De Abba Padre aprendí"
+  devocional-4.jpg → índice "Devocional 1"
+  devocional-5.jpg → página "+ Relación - Religión"
+
+FRASCO DE EMOCIONES  (1 foto)
+  frasco.jpg → frasco con tarjetas de colores y etiqueta "Menorá"
+
+CÓMO AGREGARLAS
+  Opción A (recomendada): súbelas a la carpeta talita-cumi/img/ del
+  repositorio en GitHub con esos nombres.
+  Opción B: mándamelas por aquí guardadas como archivo, o ponlas en tu
+  carpeta de Google Drive y avísame: yo las bajo y las incrusto.
+
+RECOMENDACIÓN
+  Fotos cuadradas o apaisadas, mínimo 800 px de ancho. Pesa que no superen
+  ~300 KB cada una (puedes comprimirlas en tinypng.com) para que el sitio
+  cargue rápido.
